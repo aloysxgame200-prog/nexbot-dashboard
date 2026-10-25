@@ -3,13 +3,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
 
 from ...core import premium as premium_mod
 from ...core import settings_store
 from ...core.config import get_settings
 from ...core.db import session_scope
-from ...core.models import Guild
 from ...core.schemas import MODULES
 from ...core.security import constant_time_equals, is_owner, new_token
 from .. import auth, discord_api, ratelimit
@@ -77,8 +75,10 @@ async def servers(request: Request, refresh: bool = False):
         return RedirectResponse("/login", status_code=302)
     guilds = auth.manageable(await auth.user_guilds(user, force=refresh))
     ids = [int(g["id"]) for g in guilds]
+    if refresh:
+        discord_api.clear_cache()
+    present = await auth.present_guild_ids(ids)
     with session_scope() as db:
-        present = {g.id for g in db.scalars(select(Guild).where(Guild.id.in_(ids), Guild.bot_present.is_(True)))}
         prem = {gid for gid in present if premium_mod.is_premium(db, gid)}
     s = get_settings()
     items = [{**g, "present": int(g["id"]) in present, "premium": int(g["id"]) in prem,
