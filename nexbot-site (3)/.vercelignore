@@ -1,0 +1,7 @@
+# Le bot ne tourne pas sur Vercel : inutile de l'envoyer avec le site
+tests/
+run_bot.bat
+run_bot.sh
+README-BOT.md
+start_bot.py
+Procfile

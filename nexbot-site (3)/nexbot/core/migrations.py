@@ -23,8 +23,15 @@ def _v1(conn: Connection) -> None:
     Base.metadata.create_all(conn)
 
 
+def _v2(conn: Connection) -> None:
+    """Statistiques d'utilisation du bot et blacklist globale (tables ajoutées, rien n'est modifié)."""
+    for model in (models.ActiveUser, models.CommandUsage, models.GlobalBlacklist, models.GuildEvent):
+        model.__table__.create(conn, checkfirst=True)
+
+
 MIGRATIONS: list[tuple[int, Callable[[Connection], None]]] = [
     (1, _v1),
+    (2, _v2),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

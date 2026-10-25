@@ -265,4 +265,47 @@ class DashboardAudit(Base):
     created_at: Mapped[datetime] = mapped_column(TZ, default=utcnow, index=True)
 
 
+class ActiveUser(Base):
+    """Utilisateurs ayant utilisé Nexbot (commande, bouton, ticket…) un jour donné.
+
+    Sert uniquement à compter les utilisateurs actifs (jour / semaine / mois) pour
+    la commande propriétaire *stats. Aucun contenu n'est stocké ; les lignes de
+    plus de 90 jours sont supprimées automatiquement.
+    """
+
+    __tablename__ = "active_users"
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+
+
+class CommandUsage(Base):
+    """Nombre d'utilisations de chaque commande par jour (tous serveurs confondus)."""
+
+    __tablename__ = "command_usage"
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    command: Mapped[str] = mapped_column(String(64), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class GlobalBlacklist(Base):
+    """Utilisateurs ou serveurs bannis de Nexbot par le propriétaire (commandes *)."""
+
+    __tablename__ = "global_blacklist"
+    target_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    kind: Mapped[str] = mapped_column(String(8), default="user")  # user | guild
+    reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(TZ, default=utcnow)
+
+
+class GuildEvent(Base):
+    """Arrivées / départs de Nexbot sur des serveurs (croissance, pour *stats)."""
+
+    __tablename__ = "guild_events"
+    id: Mapped[int] = mapped_column(IdType, primary_key=True, autoincrement=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    kind: Mapped[str] = mapped_column(String(8))  # join | leave
+    member_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(TZ, default=utcnow, index=True)
+
+
 Index("ix_daily_stats_guild_day", DailyStat.guild_id, DailyStat.day)

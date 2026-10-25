@@ -712,7 +712,7 @@
         try { await api("PUT", `${BASE}/automations/${a.id}`, { name: a.name, enabled: tog.checked, definition: a.definition }); toast(tog.checked ? "Activée" : "Désactivée"); }
         catch (e) { tog.checked = !tog.checked; toast(e.message, "error"); }
       });
-      const out = h("div", { class: "muted small" });
+      const out = h("div", { class: "muted small", style: { whiteSpace: "pre-line" } });
       listCard.append(h("div", { class: "auto-item" }, h("label", { class: "switch" }, tog, h("span")),
         h("div", { class: "desc" }, h("b", { text: a.name }), h("div", { class: "muted small", text: describe(a.definition) }),
           h("div", { class: "muted small", text: `Exécutions : ${a.run_count}${a.last_run_at ? " · dernière : " + fmtDate(a.last_run_at) : ""}` }), out),
@@ -869,7 +869,7 @@
   async function pageIncidents() {
     const d = await api("GET", `${BASE}/incidents`);
     const KIND = { join_raid: "Arrivée massive", young_account: "Compte récent", bot_added: "Bot non autorisé", channel_delete: "Suppressions de salons", channel_create: "Créations de salons",
-      role_delete: "Suppressions de rôles", role_create: "Créations de rôles", mass_ban: "Bannissements en masse", webhook_create: "Webhooks", dangerous_permission: "Permission dangereuse", mention_raid: "Spam de mentions", spam: "Spam" };
+      role_delete: "Suppressions de rôles", role_create: "Créations de rôles", mass_ban: "Bannissements en masse", webhook_create: "Webhooks", dangerous_permission: "Permission dangereuse", mention_raid: "Spam de mentions", spam: "Spam", quarantine: "Mise en quarantaine" };
     const SEV = { low: "off", medium: "warn", high: "danger", critical: "danger" };
     const page = h("div", {}, head("Incidents de sécurité", "Détections de l'anti-raid et de l'anti-nuke. Marquez-les comme résolus après vérification (faux positifs compris)."));
     const card = h("div", { class: "card" });
