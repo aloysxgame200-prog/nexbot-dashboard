@@ -194,7 +194,7 @@
     }
     if (extra && extra.button) body.append(h("span", { class: "dc-button " + (extra.button.style || "primary"), text: extra.button.label }));
     if (!msg.content && !e && !(extra && extra.button)) body.append(h("div", { class: "muted small", text: "(message vide)" }));
-    return h("div", { class: "dc-preview" }, h("div", { class: "dc-msg" }, h("div", { class: "av", text: "N" }), body));
+    return h("div", { class: "dc-preview" }, h("div", { class: "dc-msg" }, h("img", { class: "av", src: "/static/logo.png", alt: "" }), body));
   }
 
   // ------------------------------------------------------------------ éditeur d'embed (réutilisable)
