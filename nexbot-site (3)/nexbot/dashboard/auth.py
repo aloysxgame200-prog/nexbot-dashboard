@@ -6,7 +6,7 @@ from datetime import timedelta
 from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from ..core import premium as premium_mod
 from ..core.config import get_settings
@@ -158,6 +158,32 @@ def manageable(guilds: list[dict]) -> list[dict]:
     return [g for g in guilds if can_manage_guild(g["permissions"], g["owner"])]
 
 
+async def present_guild_ids(ids: list[int]) -> set[int]:
+    """Serveurs (parmi `ids`) où Nexbot est présent.
+
+    Source de vérité : l'API Discord (token du bot). La base de données ne sert
+    que de secours si Discord est injoignable. Les serveurs trouvés sont
+    enregistrés en base pour que le bot et le Dashboard partagent la même liste.
+    """
+    wanted = set(ids)
+    try:
+        live = await discord_api.bot_guilds()
+    except discord_api.DiscordError:
+        with session_scope() as db:
+            rows = db.scalars(select(Guild.id).where(Guild.id.in_(wanted), Guild.bot_present.is_(True)))
+            return set(rows)
+    found = wanted & set(live)
+    if found:
+        with session_scope() as db:
+            for gid in found:
+                row = db.get(Guild, gid)
+                if row is None:
+                    db.add(Guild(id=gid, name=live[gid]["name"][:100], icon=live[gid]["icon"], bot_present=True))
+                elif not row.bot_present:
+                    row.bot_present, row.left_at = True, None
+    return found
+
+
 @dataclass
 class GuildContext:
     id: int
@@ -177,16 +203,8 @@ async def require_guild(request: Request, guild_id: int, *, mutate: bool = False
     match = next((g for g in guilds if g["id"] == str(guild_id)), None)
     if match is None:
         raise HTTPException(403, "Vous n'avez pas la permission « Gérer le serveur » sur ce serveur.")
-    with session_scope() as db:
-        row = db.get(Guild, guild_id)
-        present = bool(row and row.bot_present)
-    if not present:
-        try:
-            present = await discord_api.bot_in_guild(guild_id)
-        except discord_api.DiscordError:
-            present = False
-    if not present:
-        raise HTTPException(404, "Nexbot n'est pas présent sur ce serveur.")
+    if guild_id not in await present_guild_ids([guild_id]):
+        raise HTTPException(404, "Nexbot n'est pas présent sur ce serveur. Invitez-le puis actualisez la page.")
     with session_scope() as db:
         is_prem = premium_mod.is_premium(db, guild_id)
     return GuildContext(guild_id, match["name"], match["icon"], is_prem, user)
