@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ BOT_NAME }} — Dashboard{% endblock %}</title>
   <meta name="description" content="{{ BOT_NAME }} : bot Discord de modération, anti-raid et personnalisation, avec Dashboard.">
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/static/favicon.png" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap">
   <link rel="stylesheet" href="/static/css/nexbot.css?v={{ VERSION }}">
@@ -14,7 +14,7 @@
 <body {% block body_attrs %}{% endblock %}>
   <header class="topbar">
     {% block topbar_left %}{% endblock %}
-    <a class="brand" href="/"><span class="logo">N</span>{{ BOT_NAME }}</a>
+    <a class="brand" href="/"><img class="logo-img" src="/static/logo.png" alt="{{ BOT_NAME }}" width="44" height="44">{{ BOT_NAME }}</a>
     <nav>
       <a class="hide-sm" href="/premium">Premium</a>
       <a class="hide-sm" href="/help">Aide</a>

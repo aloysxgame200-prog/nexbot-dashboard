@@ -20,6 +20,15 @@ except ImportError:  # pragma: no cover
 BOT_NAME = "Nexbot"
 VERSION = "0.1.0"
 DEFAULT_SUPPORT_URL = "https://discord.gg/BFDZ7577rZ"
+# Dashboard public (Vercel) : utilisé par le bot (/dashboard) si DASHBOARD_URL n'est pas définie.
+PUBLIC_DASHBOARD_URL = "https://nexbot-dashboard-nexbotsite.vercel.app"
+
+
+def public_dashboard_url() -> str:
+    url = os.getenv("DASHBOARD_URL", "").strip().rstrip("/")
+    if not url or "localhost" in url or "127.0.0.1" in url:
+        return PUBLIC_DASHBOARD_URL
+    return url
 
 # Permissions demandées à l'invitation du bot (voir README).
 # Administrator n'est volontairement PAS demandé : seulement ce qui est nécessaire.

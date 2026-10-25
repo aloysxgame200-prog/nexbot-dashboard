@@ -1,0 +1,7 @@
+# Dépendances du bot seul (à installer sur la machine qui fait tourner Nexbot 24 h/24)
+discord.py>=2.4
+sqlalchemy>=2.0.30
+psycopg[binary]>=3.2
+pydantic>=2.7
+cryptography>=42
+python-dotenv>=1.0
