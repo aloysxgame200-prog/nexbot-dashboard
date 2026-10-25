@@ -220,3 +220,4 @@ footer.site { border-top: 1px solid var(--border); color: var(--muted); padding:
   .field { grid-template-columns: 1fr; }
   .topbar nav .hide-sm { display: none; }
 }
+.logo-img { width: 44px; height: 44px; border-radius: 12px; display: block; }
