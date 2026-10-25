@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Mes serveurs — {{ BOT_NAME }}{% endblock %}
+{% block content %}
+<main class="container">
+  <div class="page-head">
+    <div>
+      <h1>Mes serveurs</h1>
+      <p class="muted">Serveurs où vous avez la permission « Gérer le serveur ».</p>
+    </div>
+    <a class="btn" href="/servers?refresh=1">↻ Actualiser</a>
+  </div>
+  {% if not guilds %}
+    <div class="card empty">Aucun serveur administrable trouvé sur votre compte Discord.</div>
+  {% endif %}
+  <div class="guild-grid">
+    {% for g in guilds %}
+    <div class="guild-card">
+      <div class="head">
+        <div class="gicon">{% if g.icon %}<img src="{{ guild_icon(g.id, g.icon) }}" alt="">{% else %}{{ g.name[:2] }}{% endif %}</div>
+        <div style="min-width:0">
+          <div class="name" title="{{ g.name }}">{{ g.name }}</div>
+          {% if g.premium %}<span class="badge premium">✦ Premium</span>{% elif g.present %}<span class="badge ok">Nexbot actif</span>{% else %}<span class="badge off">Non installé</span>{% endif %}
+        </div>
+      </div>
+      {% if g.present %}
+        <a class="btn primary" href="/g/{{ g.id }}">Configurer</a>
+      {% else %}
+        <a class="btn" href="{{ g.invite }}" target="_blank" rel="noopener">Inviter {{ BOT_NAME }}</a>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <p class="muted small" style="margin-top:22px">Vous venez d'inviter {{ BOT_NAME }} ? Cliquez sur « Actualiser » après quelques secondes.</p>
+</main>
+{% endblock %}

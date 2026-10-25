@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ BOT_NAME }} — Dashboard{% endblock %}</title>
+  <meta name="description" content="{{ BOT_NAME }} : bot Discord de modération, anti-raid et personnalisation, avec Dashboard.">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap">
+  <link rel="stylesheet" href="/static/css/nexbot.css?v={{ VERSION }}">
+  {% block head %}{% endblock %}
+</head>
+<body {% block body_attrs %}{% endblock %}>
+  <header class="topbar">
+    {% block topbar_left %}{% endblock %}
+    <a class="brand" href="/"><span class="logo">N</span>{{ BOT_NAME }}</a>
+    <nav>
+      <a class="hide-sm" href="/premium">Premium</a>
+      <a class="hide-sm" href="/help">Aide</a>
+      <a class="hide-sm" href="/support" target="_blank" rel="noopener">Support</a>
+      {% if user %}
+        <a href="/servers">Mes serveurs</a>
+        <span class="userchip">
+          <img class="avatar" src="{{ user.avatar_url }}" alt="">
+          <button class="btn sm ghost" id="logout" data-csrf="{{ user.csrf_token }}" type="button">Déconnexion</button>
+        </span>
+      {% else %}
+        <a class="btn primary sm" href="/login">Se connecter avec Discord</a>
+      {% endif %}
+    </nav>
+  </header>
+  {% block content %}{% endblock %}
+  <div id="toasts" aria-live="polite"></div>
+  <script src="/static/js/common.js?v={{ VERSION }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

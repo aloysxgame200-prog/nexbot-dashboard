@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Aide — {{ BOT_NAME }}{% endblock %}
+{% block content %}
+<main class="container">
+  <h1>Aide</h1>
+  <p class="muted">Tout se configure depuis le Dashboard ; les commandes slash servent aux actions de tous les jours.</p>
+
+  <div class="grid cols-2">
+    <div class="card">
+      <h3>Démarrer en 3 étapes</h3>
+      <ol class="stack">
+        <li><a href="/invite">Invitez {{ BOT_NAME }}</a> sur votre serveur et placez son rôle <b>au-dessus</b> des rôles qu'il doit gérer (sinon Discord l'empêche d'agir sur ces membres).</li>
+        <li>Ouvrez le Dashboard, choisissez le serveur, configurez <b>Logs</b> puis <b>Anti-raid</b> (salon d'alertes + rôle de quarantaine).</li>
+        <li>Activez la modération automatique, la bienvenue et les tickets selon vos besoins.</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>Besoin d'aide ?</h3>
+      <p>Rejoignez le serveur de support : l'équipe et la communauté répondent à vos questions et récoltent vos idées.</p>
+      <a class="btn primary" href="/support" target="_blank" rel="noopener">Serveur de support</a>
+    </div>
+  </div>
+
+  <div class="card table-wrap">
+    <h3>Commandes slash</h3>
+    <table>
+      <thead><tr><th>Commande</th><th>Rôle</th><th>Permission requise</th></tr></thead>
+      <tbody>
+        <tr><td><code>/ban</code> <code>/unban</code></td><td>Bannir (option durée pour un ban temporaire) / débannir</td><td>Bannir des membres</td></tr>
+        <tr><td><code>/kick</code></td><td>Expulser un membre</td><td>Expulser des membres</td></tr>
+        <tr><td><code>/timeout</code> <code>/untimeout</code></td><td>Rendre muet temporairement / annuler</td><td>Exclure temporairement</td></tr>
+        <tr><td><code>/warn</code> <code>/unwarn</code> <code>/warnings</code></td><td>Avertir, retirer un avertissement, lister</td><td>Exclure temporairement</td></tr>
+        <tr><td><code>/clear</code></td><td>Supprimer jusqu'à 100 messages (filtre par membre possible)</td><td>Gérer les messages</td></tr>
+        <tr><td><code>/note add</code> <code>/note list</code></td><td>Notes internes du staff sur un membre</td><td>Exclure temporairement</td></tr>
+        <tr><td><code>/history</code></td><td>Historique des sanctions d'un membre</td><td>Exclure temporairement</td></tr>
+        <tr><td><code>/raidmode</code></td><td>Activer / couper le mode protection renforcée</td><td>Gérer le serveur</td></tr>
+        <tr><td><code>/lockdown</code> <code>/unlock</code></td><td>Verrouiller / déverrouiller un salon</td><td>Gérer les salons</td></tr>
+        <tr><td><code>/quarantine</code> <code>/unquarantine</code></td><td>Isoler un membre suspect / le libérer</td><td>Gérer les rôles</td></tr>
+        <tr><td><code>/ticket close</code></td><td>Fermer le ticket courant</td><td>Staff des tickets</td></tr>
+        <tr><td><code>/suggest</code></td><td>Proposer une suggestion</td><td>Tout le monde</td></tr>
+        <tr><td><code>/report</code></td><td>Signaler un membre au staff (privé)</td><td>Tout le monde</td></tr>
+        <tr><td><code>/dashboard</code> <code>/help</code> <code>/ping</code></td><td>Lien du Dashboard, aide, latence</td><td>Tout le monde</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Questions fréquentes</h3>
+    <p><b>{{ BOT_NAME }} peut-il bloquer tous les raids ?</b><br><span class="muted">Non. Aucun bot ne le peut : il agit après les événements que Discord lui transmet, dans la limite de ses permissions. Les seuils réglables et la quarantaine limitent fortement les dégâts.</span></p>
+    <p><b>Pourquoi une sanction échoue ?</b><br><span class="muted">Discord interdit d'agir sur un membre dont le rôle le plus haut est au-dessus de celui de {{ BOT_NAME }}, ainsi que sur le propriétaire du serveur.</span></p>
+    <p><b>Les messages supprimés sont-ils tous loggés ?</b><br><span class="muted">Seulement ceux encore en mémoire du bot ou présents dans le cache Discord ; un message très ancien peut arriver sans contenu.</span></p>
+    <p><b>Que deviennent mes réglages si le Premium expire ?</b><br><span class="muted">Ils sont conservés et réactivés automatiquement au réabonnement.</span></p>
+  </div>
+</main>
+{% endblock %}

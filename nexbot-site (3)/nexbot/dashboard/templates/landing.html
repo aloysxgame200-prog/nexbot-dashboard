@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Protégez votre serveur.<br><em>Configurez tout en quelques clics.</em></h1>
+  <p>{{ BOT_NAME }} réunit modération, anti-raid, logs, tickets et automatisations dans un seul bot, piloté depuis un Dashboard clair.</p>
+  <div class="actions">
+    <a class="btn primary lg" href="/invite">Ajouter {{ BOT_NAME }}</a>
+    <a class="btn lg" href="{{ '/servers' if user else '/login' }}">Ouvrir le Dashboard</a>
+  </div>
+  {% if request.query_params.get('error') == 'oauth_refused' %}
+    <p class="notice danger" style="max-width:520px;margin:24px auto 0">Connexion annulée sur Discord.</p>
+  {% endif %}
+</section>
+
+<section class="features">
+  <div class="feature"><div class="ico">🛡️</div><h3>Anti-raid et anti-nuke</h3><p class="muted">Arrivées massives, comptes récents, suppressions de salons et de rôles, webhooks, bots ajoutés : détection par seuils et réaction graduée.</p></div>
+  <div class="feature"><div class="ico">⚖️</div><h3>Modération complète</h3><p class="muted">Ban, kick, timeout, avertissements, sanctions temporaires, escalade automatique, notes internes et historique.</p></div>
+  <div class="feature"><div class="ico">🧹</div><h3>Filtres et anti-spam</h3><p class="muted">Invitations, liens, mots interdits, messages répétés, spam de mentions — avec exclusions par rôle et par salon.</p></div>
+  <div class="feature"><div class="ico">📜</div><h3>Logs par catégorie</h3><p class="muted">Un salon par type d'événement, une durée de conservation réglable et le strict nécessaire en données.</p></div>
+  <div class="feature"><div class="ico">🎫</div><h3>Tickets, suggestions, signalements</h3><p class="muted">Un panneau en un clic, des tickets privés, des votes de suggestions et un canal de signalement pour le staff.</p></div>
+  <div class="feature"><div class="ico">✨</div><h3>Premium</h3><p class="muted">Éditeur visuel d'embeds, annonces programmées, automatisations étendues, thème du Dashboard. Les protections essentielles restent gratuites.</p></div>
+</section>
+
+<section class="section-wrap">
+  <div class="card">
+    <h2>Gratuit ou Premium</h2>
+    <p class="muted">La sécurité de votre serveur n'est jamais payante.</p>
+    <div class="table-wrap">{% include "_features_table.html" %}</div>
+    <p style="margin-top:14px"><a href="/premium">Détails de l'offre Premium →</a></p>
+  </div>
+</section>
+<footer class="site">{{ BOT_NAME }} v{{ VERSION }} · <a href="/help">Aide</a> · <a href="/support" target="_blank" rel="noopener">Serveur de support</a></footer>
+{% endblock %}

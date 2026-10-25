@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Premium — {{ BOT_NAME }}{% endblock %}
+{% block content %}
+<main class="container">
+  <h1>{{ BOT_NAME }} Premium</h1>
+  <p class="muted" style="max-width:680px">Le Premium s'active par serveur, depuis la page « Premium » de son Dashboard. Toutes les protections essentielles (anti-raid, anti-nuke, anti-spam, modération) restent gratuites, sans limite de durée.</p>
+  <div class="card table-wrap">{% include "_features_table.html" %}</div>
+  <div class="notice info">Si un abonnement prend fin, vos personnalisations sont conservées : elles redeviennent actives dès le réabonnement.</div>
+  <a class="btn primary" href="{{ '/servers' if user else '/login' }}">Choisir un serveur</a>
+</main>
+{% endblock %}

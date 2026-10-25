@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Erreur {{ code }} — {{ BOT_NAME }}{% endblock %}
+{% block content %}
+<main class="container" style="text-align:center;padding-top:90px">
+  <h1 style="font-size:3rem">{{ code }}</h1>
+  <p class="muted" style="font-size:1.1rem">{{ message }}</p>
+  <div class="row" style="justify-content:center;margin-top:20px">
+    <a class="btn primary" href="/servers">Mes serveurs</a>
+    <a class="btn" href="/support" target="_blank" rel="noopener">Support</a>
+  </div>
+</main>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ guild.name }} — {{ BOT_NAME }}{% endblock %}
+{% block body_attrs %}class="{{ 'compact' if theme.density == 'compact' else '' }}" style="--primary:{{ theme.primary }};--secondary:{{ theme.secondary }};--accent:{{ theme.accent }};--bg:{{ theme.background }};--surface:{{ theme.surface }};--radius:{{ theme.radius }}px"{% endblock %}
+{% block topbar_left %}<button class="btn sm ghost menu-toggle" id="menu-toggle" type="button" aria-label="Menu">☰</button>{% endblock %}
+{% block content %}
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="gname">
+      <div class="gicon">{% if guild.icon %}<img src="{{ guild_icon(guild.id, guild.icon) }}" alt="">{% else %}{{ guild.name[:2] }}{% endif %}</div>
+      <div style="min-width:0">
+        <div style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ guild.name }}</div>
+        {% if guild.premium %}<span class="badge premium">✦ Premium</span>{% else %}<span class="badge off">Gratuit</span>{% endif %}
+      </div>
+    </div>
+    <nav id="nav"></nav>
+  </aside>
+  <main class="main" id="app"><div class="skeleton"></div></main>
+</div>
+<script id="boot" type="application/json">{{ boot | safejson }}</script>
+{% endblock %}
+{% block scripts %}<script src="/static/js/app.js?v={{ VERSION }}"></script>{% endblock %}

@@ -1,0 +1,13 @@
+<table>
+  <thead><tr><th>Fonctionnalité</th><th>Gratuit</th><th>Premium</th></tr></thead>
+  <tbody>
+  {% for name, free, prem in features %}
+    <tr>
+      <td>{{ name }}</td>
+      {% for v in (free, prem) %}
+        <td>{% if v is sameas true %}<span class="yes">✓</span>{% elif v is sameas false %}<span class="no">—</span>{% else %}{{ v }}{% endif %}</td>
+      {% endfor %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
