@@ -104,16 +104,25 @@ async def _cached(key: tuple, coro_factory):
     return value
 
 
-async def bot_in_guild(guild_id: int) -> bool:
+async def bot_guilds() -> dict[int, dict]:
+    """Serveurs où se trouve réellement le bot, demandés à Discord (pagination par 200)."""
     async def fetch():
-        try:
-            await _request("GET", f"/guilds/{guild_id}", auth=_bot_auth())
-            return True
-        except DiscordError as e:
-            if e.status in (403, 404):
-                return False
-            raise
-    return await _cached(("present", guild_id), fetch)
+        out: dict[int, dict] = {}
+        after = "0"
+        for _ in range(50):  # jusqu'à 10 000 serveurs
+            page = await _request("GET", "/users/@me/guilds", auth=_bot_auth(),
+                                  params={"limit": 200, "after": after})
+            for g in page:
+                out[int(g["id"])] = {"name": g.get("name", ""), "icon": g.get("icon")}
+            if len(page) < 200:
+                break
+            after = page[-1]["id"]
+        return out
+    return await _cached(("bot_guilds",), fetch)
+
+
+async def bot_in_guild(guild_id: int) -> bool:
+    return guild_id in await bot_guilds()
 
 
 async def guild_channels(guild_id: int) -> list[dict]:
