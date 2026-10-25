@@ -30,6 +30,20 @@ Portail développeur → ton application → **Bot** :
 
 Le bot reste en ligne tant que la fenêtre est ouverte et le PC allumé. Pour un fonctionnement 24 h/24, il faut un serveur qui reste allumé (VPS, hébergeur de bots…) : on pourra s'en occuper ensuite, le code ne change pas.
 
+## 2 bis. Héberger le bot 24 h/24 (recommandé : depuis GitHub)
+
+Branche ton hébergeur sur le dépôt GitHub `aloysxgame200-prog/nexbot-dashboard` plutôt que d'envoyer des fichiers à la main : chaque mise à jour fusionnée sur GitHub (dont celles du lundi) arrive alors sur le bot au prochain redéploiement.
+
+| Réglage de l'hébergeur | Valeur |
+|---|---|
+| Dépôt | `aloysxgame200-prog/nexbot-dashboard`, branche `main` |
+| Dossier racine | `nexbot-site (3)` |
+| Installation | `pip install -r requirements.txt` (souvent automatique) |
+| Démarrage | `python start_bot.py` |
+| Variables | `DISCORD_BOT_TOKEN`, `DATABASE_URL` (la même que sur Vercel), `NEXBOT_ENV=production`, `DASHBOARD_URL`, `DISCORD_CLIENT_ID`, `SECRET_KEY` |
+
+Active le redéploiement automatique à chaque push si l'hébergeur le propose ; sinon, clique sur « Redeploy » après avoir fusionné une mise à jour.
+
 ## 3. Commandes propriétaire `*` (uniquement l'ID 598080343958093831)
 
 Pour toute autre personne, ces commandes n'existent pas : aucune réponse, aucune réaction, aucun message d'erreur. Le filtrage se fait à trois endroits indépendants dans le code.

@@ -3,3 +3,5 @@ tests/
 run_bot.bat
 run_bot.sh
 README-BOT.md
+start_bot.py
+Procfile

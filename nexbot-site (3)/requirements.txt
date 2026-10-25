@@ -1,3 +1,4 @@
+# Site (Vercel) et bot : un seul fichier, pour que Vercel comme l'hébergeur du bot l'installent tel quel
 fastapi>=0.115
 jinja2>=3.1
 httpx>=0.27
@@ -7,3 +8,4 @@ psycopg[binary]>=3.2
 cryptography>=42
 python-dotenv>=1.0
 stripe>=10
+discord.py>=2.4
