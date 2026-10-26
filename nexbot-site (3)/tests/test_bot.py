@@ -393,3 +393,151 @@ def test_ban_reaction_requires_explicit_confirmation():
     with pytest.raises(Exception):
         AntiRaidSettings(nuke_action="ban")
     assert AntiRaidSettings(nuke_action="ban", confirm_destructive=True).nuke_action == "ban"
+
+
+# ----------------------------------------------------------------- mise à jour du 26/10/2026
+def test_edited_message_is_filtered_unless_disabled():
+    async def scenario():
+        from nexbot.bot.cogs.automod import AutoMod
+        from nexbot.core import settings_store
+
+        bot = make_bot()
+        cog = AutoMod(bot)
+        cog._exempt = lambda message, conf: False
+        cog._punish = AsyncMock()
+        guild = SimpleNamespace(id=GUILD_A)
+        author = SimpleNamespace(id=555, bot=False)
+
+        def msg(content):
+            return SimpleNamespace(author=author, guild=guild, webhook_id=None, content=content)
+
+        await cog.on_message_edit(msg("salut"), msg("rejoins discord.gg/abcdef"))
+        cog._punish.assert_awaited_once()
+        assert cog._punish.await_args.args[3] == "invite"
+        assert "message modifié" in cog._punish.await_args.args[2]
+
+        cog._punish.reset_mock()
+        await cog.on_message_edit(msg("discord.gg/abcdef"), msg("discord.gg/abcdef"))  # contenu inchangé (ex. aperçu de lien)
+        await cog.on_message_edit(msg("salut"), msg("<@1> <@2> <@3> <@4> <@5> <@6> <@7> <@8>"))  # mentions : pas de notif
+        cog._punish.assert_not_awaited()
+
+        with session_scope() as db:
+            settings_store.save(db, GUILD_A, "moderation", {"filter_edits": False}, user_id=1, premium=False)
+        bot.invalidate(GUILD_A)
+        await cog.on_message_edit(msg("salut"), msg("rejoins discord.gg/abcdef"))
+        cog._punish.assert_not_awaited()                     # option coupée dans le Dashboard
+        await bot.close()
+    run(scenario())
+
+
+def test_filter_edits_option_is_free_and_on_by_default():
+    from nexbot.core.schemas import describe_module
+
+    assert ModerationSettings().filter_edits is True
+    field = next(f for f in describe_module("moderation") if f["name"] == "filter_edits")
+    assert field["premium"] is False and field["ui"] == "toggle"
+
+
+def test_unwarn_and_clearwarns():
+    async def scenario():
+        from nexbot.bot.cogs.moderation import Moderation
+        from nexbot.core.models import Sanction
+
+        bot = make_bot()
+        cog = Moderation(bot)
+        with session_scope() as db:
+            ids = []
+            for uid in (601, 601, 601, 602):
+                s = Sanction(guild_id=GUILD_A, user_id=uid, moderator_id=1, type="warn", reason="x")
+                db.add(s)
+                db.flush()
+                ids.append(s.id)
+            other = Sanction(guild_id=GUILD_A + 1, user_id=601, moderator_id=1, type="warn", reason="ailleurs")
+            db.add(other)
+            db.flush()
+            other_id = other.id
+        assert await cog.revoke_warn(GUILD_A, ids[0], 7) == ("ok", 601)
+        assert await cog.revoke_warn(GUILD_A, ids[0], 7) == ("already", 601)   # pas de faux « retiré »
+        assert await cog.revoke_warn(GUILD_A, other_id, 7) == ("missing", None)  # autre serveur
+        assert await cog.revoke_warn(GUILD_A, 999999, 7) == ("missing", None)
+
+        assert await cog.revoke_all_warns(GUILD_A, 601, 7) == 2
+        assert await cog.revoke_all_warns(GUILD_A, 601, 7) == 0
+        assert await cog.active_warns(GUILD_A, 601) == 0
+        assert await cog.active_warns(GUILD_A, 602) == 1        # les autres membres ne sont pas touchés
+        with session_scope() as db:
+            assert db.get(Sanction, other_id).active is True    # ni les autres serveurs
+            assert db.query(Sanction).filter_by(guild_id=GUILD_A, user_id=601).count() == 3  # historique conservé
+            assert all(s.revoked_by == 7 for s in db.query(Sanction).filter_by(guild_id=GUILD_A, user_id=601))
+        await bot.close()
+    run(scenario())
+
+
+def _clean_tickets():
+    from sqlalchemy import delete
+
+    from nexbot.core.models import Ticket
+
+    with session_scope() as db:
+        db.execute(delete(Ticket))
+
+
+def test_ticket_with_deleted_channel_no_longer_blocks_member():
+    async def scenario():
+        from nexbot.bot.cogs.tickets import Tickets
+        from nexbot.core.models import Ticket
+
+        _clean_tickets()
+        bot = make_bot()
+        cog = Tickets(bot)
+        alive_channel = 700000000000000001
+        with session_scope() as db:
+            db.add(Ticket(guild_id=GUILD_A, opener_id=601, channel_id=700000000000000099))  # salon supprimé à la main
+            db.add(Ticket(guild_id=GUILD_A, opener_id=601, channel_id=None,                 # création interrompue
+                          created_at=datetime.now(timezone.utc) - timedelta(hours=1)))
+            db.add(Ticket(guild_id=GUILD_A, opener_id=602, channel_id=alive_channel))
+            db.add(Ticket(guild_id=GUILD_A, opener_id=602, channel_id=None))               # création en cours
+        guild = SimpleNamespace(id=GUILD_A, get_channel=lambda cid: object() if cid == alive_channel else None)
+        assert await cog.open_count(guild, 601) == 0           # le membre peut rouvrir un ticket
+        assert await cog.open_count(guild, 602) == 2           # tickets bien vivants : comptés
+        with session_scope() as db:
+            assert db.query(Ticket).filter_by(opener_id=601, status="closed").count() == 2
+        await bot.close()
+        _clean_tickets()
+    run(scenario())
+
+
+def test_ticket_closed_when_its_channel_is_deleted():
+    async def scenario():
+        from nexbot.bot.cogs.tickets import Tickets
+        from nexbot.core.models import Ticket
+
+        _clean_tickets()
+        bot = make_bot()
+        cog = Tickets(bot)
+        with session_scope() as db:
+            db.add(Ticket(guild_id=GUILD_A, opener_id=601, channel_id=700000000000000005))
+        channel = SimpleNamespace(id=700000000000000005, guild=SimpleNamespace(id=GUILD_A, get_channel=lambda cid: None))
+        await cog.on_guild_channel_delete(channel)
+        with session_scope() as db:
+            assert db.query(Ticket).filter_by(channel_id=700000000000000005).one().status == "closed"
+        await cog.on_guild_channel_delete(SimpleNamespace(id=1, guild=channel.guild))  # salon quelconque : rien
+        await bot.close()
+        _clean_tickets()
+    run(scenario())
+
+
+def test_ticket_cannot_be_closed_twice_at_once():
+    async def scenario():
+        from nexbot.bot.cogs.tickets import Tickets
+
+        bot = make_bot()
+        cog = Tickets(bot)
+        assert cog.reserve_close(42) is True
+        assert cog.reserve_close(42) is False                 # deuxième clic pendant les 5 secondes
+        cog._close_ticket = AsyncMock(side_effect=RuntimeError("boom"))
+        with pytest.raises(RuntimeError):
+            await cog.close_ticket(MagicMock(), (42, 1, "Support"), MagicMock())
+        assert cog.reserve_close(42) is True                  # libéré même en cas d'erreur
+        await bot.close()
+    run(scenario())

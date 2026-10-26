@@ -29,7 +29,7 @@
         <tr><td><code>/ban</code> <code>/unban</code></td><td>Bannir (option durée pour un ban temporaire) / débannir</td><td>Bannir des membres</td></tr>
         <tr><td><code>/kick</code></td><td>Expulser un membre</td><td>Expulser des membres</td></tr>
         <tr><td><code>/timeout</code> <code>/untimeout</code></td><td>Rendre muet temporairement / annuler</td><td>Exclure temporairement</td></tr>
-        <tr><td><code>/warn</code> <code>/unwarn</code> <code>/warnings</code></td><td>Avertir, retirer un avertissement, lister</td><td>Exclure temporairement</td></tr>
+        <tr><td><code>/warn</code> <code>/unwarn</code> <code>/clearwarns</code> <code>/warnings</code></td><td>Avertir, retirer un avertissement, retirer tous les avertissements d'un membre (l'historique est conservé), lister</td><td>Exclure temporairement</td></tr>
         <tr><td><code>/clear</code></td><td>Supprimer jusqu'à 100 messages (filtre par membre possible)</td><td>Gérer les messages</td></tr>
         <tr><td><code>/note add</code> <code>/note list</code></td><td>Notes internes du staff sur un membre</td><td>Exclure temporairement</td></tr>
         <tr><td><code>/history</code> <code>/case</code></td><td>Historique des sanctions d'un membre, détail d'une sanction</td><td>Exclure temporairement</td></tr>
@@ -38,7 +38,7 @@
         <tr><td><code>/raidmode</code></td><td>Activer / couper le mode protection renforcée</td><td>Gérer le serveur</td></tr>
         <tr><td><code>/lockdown</code> <code>/unlock</code></td><td>Verrouiller / déverrouiller un salon</td><td>Gérer les salons</td></tr>
         <tr><td><code>/quarantine</code> <code>/unquarantine</code></td><td>Isoler un membre suspect / le libérer</td><td>Gérer les rôles</td></tr>
-        <tr><td><code>/ticket close</code> <code>/ticket add</code> <code>/ticket remove</code></td><td>Fermer le ticket (avec transcription), ajouter / retirer un membre</td><td>Auteur ou staff des tickets</td></tr>
+        <tr><td><code>/ticket close</code> <code>/ticket add</code> <code>/ticket remove</code></td><td>Fermer le ticket (avec transcription), ajouter / retirer un membre. Un ticket dont le salon est supprimé à la main est clôturé automatiquement.</td><td>Auteur ou staff des tickets</td></tr>
         <tr><td><code>/ticket panel</code></td><td>Poster le panneau des tickets dans le salon</td><td>Gérer le serveur</td></tr>
         <tr><td><code>/suggest</code></td><td>Proposer une suggestion</td><td>Tout le monde</td></tr>
         <tr><td><code>/report</code> · clic droit → Applications → <i>Signaler le message</i></td><td>Signaler un membre ou un message au staff (privé)</td><td>Tout le monde</td></tr>
@@ -52,6 +52,7 @@
     <p><b>{{ BOT_NAME }} peut-il bloquer tous les raids ?</b><br><span class="muted">Non. Aucun bot ne le peut : il agit après les événements que Discord lui transmet, dans la limite de ses permissions. Les seuils réglables et la quarantaine limitent fortement les dégâts.</span></p>
     <p><b>Pourquoi une sanction échoue ?</b><br><span class="muted">Discord interdit d'agir sur un membre dont le rôle le plus haut est au-dessus de celui de {{ BOT_NAME }}, ainsi que sur le propriétaire du serveur.</span></p>
     <p><b>Les messages supprimés sont-ils tous loggés ?</b><br><span class="muted">Seulement ceux encore en mémoire du bot ou présents dans le cache Discord ; un message très ancien peut arriver sans contenu.</span></p>
+    <p><b>Un membre peut-il contourner le filtre en modifiant son message ?</b><br><span class="muted">Non : les messages modifiés sont revérifiés (invitations, liens, mots interdits, majuscules). Option « Vérifier aussi les messages modifiés » dans Modération → Filtres, activée par défaut et gratuite.</span></p>
     <p><b>Que deviennent mes réglages si le Premium expire ?</b><br><span class="muted">Ils sont conservés et réactivés automatiquement au réabonnement.</span></p>
   </div>
 </main>
