@@ -71,15 +71,15 @@ Un **utilisateur actif** = une personne qui a utilisé une commande, un bouton, 
 
 ## 4. Ce que fait le bot
 
-- **Modération** : `/ban` (définitif ou temporaire), `/unban`, `/kick`, `/timeout`, `/untimeout`, `/warn`, `/unwarn`, `/warnings`, `/history`, `/case`, `/clear`, `/slowmode`, `/note add|list`. La hiérarchie des rôles est vérifiée, le membre est prévenu en MP, tout est enregistré et loggé. L'escalade est automatique (X avertissements → timeout / expulsion / ban).
-- **Filtre automatique** : invitations, liens (domaines autorisés), mots interdits (accents, leet speak et espaces contournés), mentions de masse, spam, messages répétés, majuscules (Premium), exclusions par rôle et par salon.
+- **Modération** : `/ban` (définitif ou temporaire), `/unban`, `/kick`, `/timeout`, `/untimeout`, `/warn`, `/unwarn`, `/clearwarns` (retire tous les avertissements actifs d'un membre, l'historique reste visible), `/warnings`, `/history`, `/case`, `/clear`, `/slowmode`, `/note add|list`. La hiérarchie des rôles est vérifiée, le membre est prévenu en MP, tout est enregistré et loggé. L'escalade est automatique (X avertissements → timeout / expulsion / ban).
+- **Filtre automatique** : invitations, liens (domaines autorisés), mots interdits (accents, leet speak et espaces contournés), mentions de masse, spam, messages répétés, majuscules (Premium), exclusions par rôle et par salon. Les **messages modifiés** sont aussi revérifiés (option gratuite, activée par défaut) : impossible d'envoyer un message propre puis de le modifier pour contourner le filtre.
 - **Anti-raid** : arrivées massives → mode protection renforcée (quarantaine, expulsion ou verrouillage), comptes trop récents, bots ajoutés sans autorisation.
 - **Anti-nuke**, via le journal d'audit en temps réel : suppressions ou créations de salons et de rôles en rafale, bans ou expulsions en masse, webhooks, permissions dangereuses. Réaction graduée : alerte → retrait des rôles → ban (seulement si tu l'as confirmé dans le Dashboard). Utilisateurs de confiance exemptés.
   - Premium : récidives, alertes en MP au propriétaire, spam de mentions coordonné, **recréation automatique** des salons et rôles supprimés.
   - Commandes : `/raidmode`, `/lockdown`, `/unlock`, `/quarantine`, `/unquarantine`, `/security`.
 - **Logs** par catégorie avec l'auteur de chaque action, couleurs personnalisables (Premium), durée de conservation réglable.
 - **Bienvenue / départ**, avec embed et MP en Premium ; **rôles automatiques** (délai en Premium, attente du dépistage d'adhésion Discord).
-- **Tickets** : panneau à bouton ou menu de catégories (Premium), salon privé, transcription `.txt` à la fermeture, fermeture automatique après inactivité (Premium).
+- **Tickets** : panneau à bouton ou menu de catégories (Premium), salon privé, transcription `.txt` à la fermeture, fermeture automatique après inactivité (Premium). Si un salon de ticket est supprimé à la main, le ticket est clôturé automatiquement : le membre n'est plus bloqué par la limite de tickets ouverts. Un double clic sur « Fermer » ne produit plus deux transcriptions.
 - **Suggestions** (votes + validation du staff avec commentaire) et **signalements** (`/report` ou clic droit sur un message).
 - **Automatisations** du Dashboard, avec un bouton « Tester » qui simule sans agir, et les **annonces programmées** (Premium).
 

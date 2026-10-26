@@ -11,7 +11,7 @@ from .. import utils
 from ..client import Nexbot
 
 HELP_SECTIONS = [
-    ("🛡️ Modération", "`/ban` `/unban` `/kick` `/timeout` `/untimeout` `/warn` `/unwarn` `/warnings` `/clear` "
+    ("🛡️ Modération", "`/ban` `/unban` `/kick` `/timeout` `/untimeout` `/warn` `/unwarn` `/clearwarns` `/warnings` `/clear` "
                       "`/history` `/case` `/note add` `/note list` `/slowmode`"),
     ("🚨 Sécurité", "`/raidmode` `/lockdown` `/unlock` `/quarantine` `/unquarantine` `/security`"),
     ("🎫 Communauté", "`/ticket close` `/ticket add` `/ticket remove` `/suggest` `/report` "

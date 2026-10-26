@@ -128,6 +128,8 @@ class ModerationSettings(ModuleModel):
     banned_words: list[str] = F([], "Mots interdits", ui="words", section="Filtres", free_max=50,
                                 help="Un mot ou une expression par ligne. 50 en gratuit, 1000 en Premium.",
                                 max_length=1000)
+    filter_edits: bool = F(True, "Vérifier aussi les messages modifiés", section="Filtres",
+                           help="Empêche de contourner le filtre en modifiant un message après l'avoir envoyé.")
     automod_action: Literal["delete", "warn", "timeout"] = F(
         "delete", "Action sur un message filtré", ui="select", section="Filtres",
         options=[["delete", "Supprimer"], ["warn", "Supprimer + avertir"], ["timeout", "Supprimer + timeout 10 min"]])
