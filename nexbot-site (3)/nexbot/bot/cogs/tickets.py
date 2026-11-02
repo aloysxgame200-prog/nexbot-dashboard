@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import io
 import logging
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from ...core.db import session_scope
 from ...core.embeds import render_text
@@ -64,6 +64,7 @@ class CloseView(discord.ui.View):
 class Tickets(commands.Cog):
     def __init__(self, bot: Nexbot) -> None:
         self.bot = bot
+        self._closing: set[int] = set()  # tickets en cours de fermeture (évite les doubles fermetures)
         bot.register_job("post_ticket_panel", self.job_post_panel)
 
     async def cog_load(self) -> None:
@@ -115,11 +116,7 @@ class Tickets(commands.Cog):
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        def count_open():
-            with session_scope() as db:
-                return db.scalar(select(func.count()).select_from(Ticket).where(
-                    Ticket.guild_id == guild.id, Ticket.opener_id == user.id, Ticket.status == "open")) or 0
-        if await self.bot.db(count_open) >= conf.max_open_per_user:
+        if await self.open_count(guild, user.id) >= conf.max_open_per_user:
             await utils.reply(interaction, utils.err(f"Vous avez déjà {conf.max_open_per_user} ticket(s) ouvert(s)."))
             return
         category = guild.get_channel(utils.snowflake(conf.category_id) or 0)
@@ -181,6 +178,66 @@ class Tickets(commands.Cog):
                                                    description=f"{user.mention} · {category_name} · {channel.mention}",
                                                    color=utils.SUCCESS))
 
+    async def open_count(self, guild: discord.Guild, user_id: int) -> int:
+        """Tickets réellement ouverts d'un membre.
+
+        Un ticket dont le salon a été supprimé à la main (ou jamais créé à cause d'un redémarrage) est clôturé
+        au passage : sinon le membre resterait bloqué par la limite de tickets ouverts.
+        """
+        def load():
+            with session_scope() as db:
+                return [(t.id, t.channel_id, t.created_at) for t in db.scalars(select(Ticket).where(
+                    Ticket.guild_id == guild.id, Ticket.opener_id == user_id, Ticket.status == "open"))]
+        stale_before = utcnow() - timedelta(minutes=10)
+        alive, orphans = 0, []
+        for tid, cid, created in await self.bot.db(load):
+            if created is not None and created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if tid in self._closing:
+                continue
+            if cid is not None and guild.get_channel(cid) is None:
+                orphans.append(tid)
+            elif cid is None and created is not None and created < stale_before:
+                orphans.append(tid)
+            else:
+                alive += 1
+        if orphans:
+            await self._mark_closed(orphans)
+        return alive
+
+    async def _mark_closed(self, ticket_ids: list[int]) -> None:
+        def close_rows():
+            with session_scope() as db:
+                for row in db.scalars(select(Ticket).where(Ticket.id.in_(ticket_ids), Ticket.status == "open")):
+                    row.status, row.closed_at = "closed", utcnow()
+        await self.bot.db(close_rows)
+
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel) -> None:
+        """Salon de ticket supprimé à la main : le ticket est clôturé pour libérer le membre."""
+        def close_row():
+            with session_scope() as db:
+                rows = db.scalars(select(Ticket).where(Ticket.guild_id == channel.guild.id,
+                                                       Ticket.channel_id == channel.id, Ticket.status == "open")).all()
+                for row in rows:
+                    row.status, row.closed_at = "closed", utcnow()
+                return [(r.id, r.opener_id) for r in rows]
+        closed = await self.bot.db(close_row)
+        if not closed:
+            return
+        conf = await self.bot.conf(channel.guild.id, "tickets")
+        for tid, opener in closed:
+            await self._log(channel.guild, conf, discord.Embed(
+                title=f"🗑️ Ticket n°{tid} clôturé", color=utils.WARNING,
+                description=f"Auteur : <@{opener}>\nLe salon a été supprimé manuellement (pas de transcription)."))
+
+    def reserve_close(self, ticket_id: int) -> bool:
+        """Réserve la fermeture d'un ticket. False si une fermeture est déjà en cours."""
+        if ticket_id in self._closing:
+            return False
+        self._closing.add(ticket_id)
+        return True
+
     async def _log(self, guild: discord.Guild, conf, embed: discord.Embed, file: discord.File | None = None) -> None:
         channel = guild.get_channel(utils.snowflake(conf.log_channel_id) or 0)
         if isinstance(channel, discord.TextChannel):
@@ -214,11 +271,23 @@ class Tickets(commands.Cog):
         if not await self._can_close(interaction.user, info[1]):
             await utils.reply(interaction, utils.err("Seuls l'auteur du ticket et le staff peuvent le fermer."))
             return
+        if not self.reserve_close(info[0]):
+            await utils.reply(interaction, utils.err("Ce ticket est déjà en cours de fermeture."))
+            return
         await interaction.response.send_message(embed=utils.warn_embed("🔒 Fermeture du ticket dans 5 secondes…"))
         await self.close_ticket(channel, info, interaction.user)
 
     async def close_ticket(self, channel: discord.TextChannel, info: tuple[int, int, str],
                            closer: discord.abc.User, reason: str = "") -> None:
+        """Ferme un ticket. L'appelant doit avoir réservé la fermeture avec reserve_close()."""
+        self._closing.add(info[0])
+        try:
+            await self._close_ticket(channel, info, closer, reason)
+        finally:
+            self._closing.discard(info[0])
+
+    async def _close_ticket(self, channel: discord.TextChannel, info: tuple[int, int, str],
+                            closer: discord.abc.User, reason: str = "") -> None:
         ticket_id, opener_id, category = info
         guild = channel.guild
         conf = await self.bot.conf(guild.id, "tickets")
@@ -264,24 +333,19 @@ class Tickets(commands.Cog):
                         for t in db.scalars(select(Ticket).where(Ticket.status == "open", Ticket.channel_id.is_not(None)))]
         for tid, gid, cid, opener, cat in await self.bot.db(load):
             guild = self.bot.get_guild(gid)
-            if guild is None:
-                continue
-            conf = await self.bot.conf(gid, "tickets")
-            if not conf.auto_close_hours:
+            if guild is None or guild.unavailable or tid in self._closing:  # serveur en panne : salons inconnus
                 continue
             channel = guild.get_channel(cid)
-            if channel is None:  # salon supprimé à la main : on clôt l'entrée
-                def close_row():
-                    with session_scope() as db:
-                        row = db.get(Ticket, tid)
-                        if row:
-                            row.status, row.closed_at = "closed", utcnow()
-                await self.bot.db(close_row)
+            if channel is None:  # salon supprimé pendant que le bot était hors ligne : on clôt l'entrée
+                await self._mark_closed([tid])
                 continue
-            if not isinstance(channel, discord.TextChannel):
+            conf = await self.bot.conf(gid, "tickets")
+            if not conf.auto_close_hours or not isinstance(channel, discord.TextChannel):
                 continue
             last = discord.utils.snowflake_time(channel.last_message_id) if channel.last_message_id else channel.created_at
             if utcnow() - last > timedelta(hours=conf.auto_close_hours):
+                if not self.reserve_close(tid):
+                    continue
                 await self.close_ticket(channel, (tid, opener, cat), guild.me,
                                         f"Fermeture automatique après {conf.auto_close_hours} h d'inactivité")
 
@@ -302,6 +366,9 @@ class Tickets(commands.Cog):
         info = await self._ticket_for(channel.id)
         if info is None or not await self._can_close(interaction.user, info[1]):  # type: ignore[arg-type]
             await utils.reply(interaction, utils.err("Ce salon n'est pas un ticket que vous pouvez fermer."))
+            return
+        if not self.reserve_close(info[0]):
+            await utils.reply(interaction, utils.err("Ce ticket est déjà en cours de fermeture."))
             return
         await interaction.response.send_message(embed=utils.warn_embed("🔒 Fermeture du ticket dans 5 secondes…"))
         await self.close_ticket(channel, info, interaction.user, reason)

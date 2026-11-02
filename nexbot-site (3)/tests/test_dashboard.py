@@ -277,6 +277,32 @@ def test_sanctions_history_isolation_and_revoke(make_client):
     assert len(alice.get(f"/api/guilds/{GUILD_A}/sanctions").json()["items"]) == 3  # historique étendu
 
 
+def test_notes_can_be_deleted_only_in_their_own_guild(make_client):
+    from nexbot.core.models import DashboardAudit, ModNote
+
+    with session_scope() as db:
+        mine = ModNote(guild_id=GUILD_A, user_id=300000000000000009, author_id=1, content="à supprimer")
+        other = ModNote(guild_id=GUILD_B, user_id=300000000000000009, author_id=1, content="autre serveur")
+        db.add_all([mine, other])
+        db.flush()
+        mine_id, other_id = mine.id, other.id
+    alice = make_client("alice")
+    notes = alice.get(f"/api/guilds/{GUILD_A}/notes?user_id=300000000000000009").json()["items"]
+    assert [n["id"] for n in notes] == [mine_id]                                    # le numéro est fourni
+    assert alice.delete(f"/api/guilds/{GUILD_A}/notes/{other_id}").status_code == 404   # note d'un autre serveur
+    assert alice.delete(f"/api/guilds/{GUILD_A}/notes/{mine_id}").status_code == 200
+    assert alice.delete(f"/api/guilds/{GUILD_A}/notes/{mine_id}").status_code == 404    # déjà supprimée
+    assert alice.get(f"/api/guilds/{GUILD_A}/notes?user_id=300000000000000009").json()["items"] == []
+    with session_scope() as db:
+        assert db.get(ModNote, other_id) is not None
+        assert db.query(DashboardAudit).filter_by(guild_id=GUILD_A, action="note.delete").count() == 1
+    bob = make_client("bob")                                          # sans « Gérer le serveur » sur A
+    assert bob.delete(f"/api/guilds/{GUILD_A}/notes/{other_id}").status_code == 403
+    assert bob.delete(f"/api/guilds/{GUILD_B}/notes/{other_id}").status_code == 200   # B : bob a la permission
+    anonymous = make_client()
+    assert anonymous.delete(f"/api/guilds/{GUILD_A}/notes/1").status_code in (401, 403)
+
+
 def test_guild_page_and_overview_render(make_client):
     alice = make_client("alice")
     r = alice.get(f"/g/{GUILD_A}/antiraid")
