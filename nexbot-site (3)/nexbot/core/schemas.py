@@ -223,13 +223,14 @@ LOG_CATEGORIES: list[tuple[str, str]] = [
     ("moderation", "Sanctions et actions des modérateurs"),
     ("roles", "Rôles des membres"),
     ("channels", "Salons créés / supprimés"),
+    ("voice", "Salons vocaux (arrivées, départs, déplacements)"),
     ("permissions", "Changements de permissions"),
     ("antiraid", "Anti-raid"),
     ("security", "Incidents de sécurité"),
     ("errors", "Erreurs de Nexbot"),
 ]
 _DEFAULT_LOG_COLORS = {"members": "#3BA55C", "messages": "#FAA61A", "moderation": "#ED4245", "roles": "#5865F2",
-                       "channels": "#00B0F4", "permissions": "#EB459E", "antiraid": "#ED4245",
+                       "channels": "#00B0F4", "voice": "#1ABC9C", "permissions": "#EB459E", "antiraid": "#ED4245",
                        "security": "#ED4245", "errors": "#99AAB5"}
 
 _log_fields: dict[str, Any] = {

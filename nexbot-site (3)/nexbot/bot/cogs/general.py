@@ -12,7 +12,7 @@ from ..client import Nexbot
 
 HELP_SECTIONS = [
     ("🛡️ Modération", "`/ban` `/unban` `/kick` `/timeout` `/untimeout` `/warn` `/unwarn` `/clearwarns` `/warnings` `/clear` "
-                      "`/history` `/case` `/note add` `/note list` `/slowmode`"),
+                      "`/history` `/case` `/note add` `/note list` `/note delete` `/slowmode`"),
     ("🚨 Sécurité", "`/raidmode` `/lockdown` `/unlock` `/quarantine` `/unquarantine` `/security`"),
     ("🎫 Communauté", "`/ticket close` `/ticket add` `/ticket remove` `/suggest` `/report` "
                      "· clic droit sur un message → *Applications → Signaler*"),

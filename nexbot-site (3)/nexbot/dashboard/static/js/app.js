@@ -856,7 +856,11 @@
       if (!/^\d{15,21}$/.test(notesUser.value.trim())) return notesBox.append(h("div", { class: "muted small", text: "Saisissez un identifiant de membre valide." }));
       const r = await api("GET", `${BASE}/notes?user_id=${notesUser.value.trim()}`);
       if (!r.items.length) notesBox.append(h("div", { class: "muted small", text: "Aucune note pour ce membre." }));
-      for (const n of r.items) notesBox.append(h("div", { class: "auto-item" }, h("div", { class: "desc" }, n.content, h("div", { class: "small muted", text: `par ${n.author_id} · ${fmtDate(n.created_at)}` }))));
+      for (const n of r.items) notesBox.append(h("div", { class: "auto-item" },
+        h("div", { class: "desc" }, n.content, h("div", { class: "small muted", text: `n°${n.id} · par ${n.author_id} · ${fmtDate(n.created_at)}` })),
+        h("button", { class: "btn sm danger", type: "button", text: "Supprimer", onclick: async () => {
+          if (!confirm("Supprimer définitivement cette note ?")) return;
+          try { await api("DELETE", `${BASE}/notes/${n.id}`); toast("Note supprimée"); loadNotes(); } catch (e) { toast(e.message, "error"); } } })));
     };
     notesUser.addEventListener("change", () => loadNotes().catch((e) => toast(e.message, "error")));
     pageEl.append(h("div", { class: "card stack" }, h("h3", { text: "Notes internes" }), h("div", { class: "row" }, h("div", { class: "grow" }, notesUser), h("button", { class: "btn", type: "button", text: "Afficher", onclick: () => loadNotes().catch((e) => toast(e.message, "error")) })),

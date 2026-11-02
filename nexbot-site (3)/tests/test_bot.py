@@ -119,7 +119,9 @@ def test_sliding_counter_window():
 
 # ----------------------------------------------------------------- utilitaires
 @pytest.mark.parametrize("text,seconds", [("10m", 600), ("2h30m", 9000), ("1j", 86400), ("1w", 604800),
-                                          ("15", 900), ("3 jours", 259200), ("", None), ("abc", None), ("10x", None)])
+                                          ("15", 900), ("3 jours", 259200), ("", None), ("abc", None), ("10x", None),
+                                          ("2sem", 1209600), ("1 semaine", 604800), ("2 semaines", 1209600),
+                                          ("1sem2j", 777600), ("45s", 45), ("5 secondes", 5), ("2 weeks", 1209600)])
 def test_parse_duration(text, seconds):
     d = utils.parse_duration(text)
     assert (d.total_seconds() if d else None) == seconds
@@ -539,5 +541,73 @@ def test_ticket_cannot_be_closed_twice_at_once():
         with pytest.raises(RuntimeError):
             await cog.close_ticket(MagicMock(), (42, 1, "Support"), MagicMock())
         assert cog.reserve_close(42) is True                  # libéré même en cas d'erreur
+        await bot.close()
+    run(scenario())
+
+
+# ----------------------------------------------------------------- notes internes
+def test_note_delete_is_limited_to_its_guild():
+    async def scenario():
+        from nexbot.bot.cogs.moderation import Moderation
+        from nexbot.core.models import ModNote
+
+        bot = make_bot()
+        cog = Moderation(bot)
+        with session_scope() as db:
+            mine = ModNote(guild_id=GUILD_A, user_id=601, author_id=1, content="note A")
+            other = ModNote(guild_id=GUILD_A + 1, user_id=601, author_id=1, content="note B")
+            db.add_all([mine, other])
+            db.flush()
+            mine_id, other_id = mine.id, other.id
+        assert await cog.delete_note(GUILD_A, other_id) is None        # note d'un autre serveur : intouchable
+        assert await cog.delete_note(GUILD_A, mine_id) == 601
+        assert await cog.delete_note(GUILD_A, mine_id) is None         # déjà supprimée
+        with session_scope() as db:
+            assert db.get(ModNote, mine_id) is None and db.get(ModNote, other_id) is not None
+        assert "delete" in {c.name for c in Moderation.note.commands}  # /note delete existe
+        await bot.close()
+    run(scenario())
+
+
+# ----------------------------------------------------------------- logs vocaux
+def _voice(channel_id):
+    return SimpleNamespace(channel=None if channel_id is None else SimpleNamespace(id=channel_id, mention=f"<#{channel_id}>"))
+
+
+def test_voice_change_detection():
+    from nexbot.bot.cogs.logs import Logs
+
+    assert Logs.voice_change(_voice(None), _voice(1))[0] == "🔊 Connexion vocale"
+    assert Logs.voice_change(_voice(1), _voice(None))[0] == "🔇 Déconnexion vocale"
+    title, desc = Logs.voice_change(_voice(1), _voice(2))
+    assert title == "🔀 Changement de salon vocal" and desc == "<#1> → <#2>"
+    assert Logs.voice_change(_voice(1), _voice(1)) is None      # micro coupé, stream… : pas de log
+    assert Logs.voice_change(_voice(None), _voice(None)) is None
+
+
+def test_voice_logs_category_is_free_and_used_by_the_listener():
+    from nexbot.bot.cogs.logs import Logs
+    from nexbot.core.schemas import LogSettings, describe_module
+
+    conf = LogSettings()
+    assert conf.voice_enabled is False and conf.voice_channel_id == ""   # désactivé par défaut
+    fields = {f["name"]: f for f in describe_module("logs")}
+    assert fields["voice_enabled"]["premium"] is False and fields["voice_channel_id"]["ui"] == "channel"
+    assert fields["voice_color"]["premium"] is True                      # seule la couleur reste Premium
+
+    async def scenario():
+        bot = make_bot()
+        cog = Logs(bot)
+        cog.send = AsyncMock(return_value=True)
+        member = SimpleNamespace(id=5, bot=False, mention="<@5>", guild=SimpleNamespace(id=GUILD_A),
+                                 display_avatar=SimpleNamespace(url="https://cdn/a.png"), __str__=lambda s: "m")
+        await cog.on_voice_state_update(member, _voice(None), _voice(10))
+        assert cog.send.await_args.args[1] == "voice"
+        assert "<#10>" in cog.send.await_args.args[2].description
+        cog.send.reset_mock()
+        await cog.on_voice_state_update(member, _voice(10), _voice(10))   # rien ne change de salon
+        member.bot = True
+        await cog.on_voice_state_update(member, _voice(None), _voice(10))  # bots ignorés
+        cog.send.assert_not_awaited()
         await bot.close()
     run(scenario())

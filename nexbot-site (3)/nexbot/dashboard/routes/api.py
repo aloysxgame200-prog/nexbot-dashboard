@@ -17,7 +17,7 @@ from ...core.db import session_scope
 from ...core.embeds import VARIABLES, MessageModel, TemplateError
 from ...core.models import (Automation, DashboardAudit, ModNote, Report, Sanction, ScheduledMessage,
                             SecurityIncident, Suggestion, Ticket, utcnow)
-from ...core.schemas import MODULES, STAT_METRICS, describe_module
+from ...core.schemas import LOG_CATEGORIES, MODULES, STAT_METRICS, describe_module
 from ...core.security import is_owner
 from .. import auth, discord_api, ratelimit
 
@@ -78,9 +78,7 @@ async def overview(request: Request, guild_id: int, days: int = 7):
         for key in ("moderation", "antiraid", "welcome", "autoroles", "tickets", "suggestions", "reports"):
             enabled[key] = bool(getattr(settings_store.effective(db, guild_id, key, ctx.premium), "enabled", False))
         logs = settings_store.effective(db, guild_id, "logs", ctx.premium)
-        enabled["logs"] = any(getattr(logs, f"{k}_enabled") for k in
-                              ("members", "messages", "moderation", "roles", "channels", "permissions",
-                               "antiraid", "security", "errors"))
+        enabled["logs"] = any(getattr(logs, f"{k}_enabled", False) for k, _ in LOG_CATEGORIES)
         series = jobs.series(db, guild_id, metrics, days)
         status = jobs.bot_status(db)
     return {"counts": counts, "modules": enabled, "stats": series, "days": days, "max_days": lim["stats_days"],
@@ -194,6 +192,20 @@ async def add_note(request: Request, guild_id: int, payload: dict = Body(...)):
     with session_scope() as db:
         db.add(ModNote(guild_id=guild_id, user_id=int(note.user_id), author_id=ctx.user.id, content=note.content))
         _audit(db, ctx, "note.add", {"user_id": note.user_id})
+    return {"ok": True}
+
+
+@router.delete("/guilds/{guild_id}/notes/{note_id}")
+async def delete_note(request: Request, guild_id: int, note_id: int):
+    ctx = await auth.require_guild(request, guild_id, mutate=True)
+    _mutate_limit(ctx)
+    with session_scope() as db:
+        note = db.get(ModNote, note_id)
+        if note is None or note.guild_id != guild_id:
+            raise HTTPException(404, "Note introuvable")
+        uid = str(note.user_id)
+        db.delete(note)
+        _audit(db, ctx, "note.delete", {"id": note_id, "user_id": uid})
     return {"ok": True}
 
 

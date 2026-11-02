@@ -598,9 +598,38 @@ class Moderation(commands.Cog):
                     .order_by(ModNote.id.desc()).limit(15))]
         rows = await self.bot.db(load)
         embed = discord.Embed(title=f"Notes — {member}", color=await self.bot.embed_color(interaction.guild_id),
-                              description="\n\n".join(f"{utils.ts(at, 'd')} par <@{a}> :\n{utils.truncate(c, 300)}"
-                                                      for _, a, c, at in rows)[:4000] or "Aucune note.")
+                              description="\n\n".join(f"`n°{nid}` {utils.ts(at, 'd')} par <@{a}> :\n{utils.truncate(c, 300)}"
+                                                      for nid, a, c, at in rows)[:4000] or "Aucune note.")
+        if rows:
+            embed.set_footer(text="Pour supprimer une note : /note delete numero")
         await utils.reply(interaction, embed)
+
+    async def delete_note(self, guild_id: int, note_id: int) -> int | None:
+        """Supprime une note interne de CE serveur. Renvoie l'ID du membre concerné, ou None si introuvable."""
+        def delete():
+            with session_scope() as db:
+                n = db.get(ModNote, note_id)
+                if n is None or n.guild_id != guild_id:
+                    return None
+                uid = n.user_id
+                db.delete(n)
+                return uid
+        return await self.bot.db(delete)
+
+    @note.command(name="delete", description="Supprimer une note interne (numéro visible dans /note list)")
+    @app_commands.describe(note_id="Numéro de la note (voir /note list)")
+    @app_commands.rename(note_id="numero")
+    async def note_delete(self, interaction: discord.Interaction, note_id: int) -> None:
+        if not await self._guard(interaction, "moderate_members", None):
+            return
+        uid = await self.delete_note(interaction.guild_id, note_id)  # type: ignore[arg-type]
+        if uid is None:
+            await utils.reply(interaction, utils.err("Note introuvable sur ce serveur (vérifiez le numéro avec /note list)."))
+            return
+        await utils.reply(interaction, utils.ok(f"Note n°{note_id} supprimée (<@{uid}>)."))
+        await self.bot.send_log(interaction.guild, "moderation", discord.Embed(  # type: ignore[arg-type]
+            title=f"🗒️ Note interne n°{note_id} supprimée",
+            description=f"Membre : <@{uid}>\nPar : {interaction.user.mention}"))
 
 
 ActionType = Literal["warn", "timeout", "kick", "ban"]
