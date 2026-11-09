@@ -288,6 +288,8 @@ class TicketSettings(ModuleModel):
     staff_role_ids: list[str] = F([], "Rôles du staff (accès aux tickets)", ui="roles", section="Général")
     log_channel_id: str = F("", "Salon des logs de tickets", ui="channel", section="Général")
     max_open_per_user: int = F(1, "Tickets ouverts maximum par membre", section="Général", ge=1, le=5)
+    ping_staff: bool = F(True, "Mentionner les rôles du staff à l'ouverture", section="Général",
+                         help="Décochez pour ouvrir les tickets sans notifier le staff (ils restent visibles par lui).")
     panel_title: str = F("Support", "Titre du panneau", section="Panneau", max_length=256)
     panel_description: str = F("Clique sur le bouton ci-dessous pour ouvrir un ticket privé avec le staff.",
                                "Description du panneau", ui="textarea", section="Panneau", max_length=2000)

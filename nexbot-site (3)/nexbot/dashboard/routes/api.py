@@ -236,6 +236,11 @@ async def resolve_incident(request: Request, guild_id: int, incident_id: int):
 
 
 # ------------------------------------------------------------------ tickets / suggestions / signalements
+def _is_discord_id(column: str) -> bool:
+    """Colonnes contenant un identifiant Discord (64 bits) : envoyées en texte, sinon JavaScript les arrondit."""
+    return column.endswith("_id") or column.endswith("_by")
+
+
 @router.get("/guilds/{guild_id}/records/{kind}")
 async def list_records(request: Request, guild_id: int, kind: str, status: str = ""):
     await auth.require_guild(request, guild_id)
@@ -250,7 +255,7 @@ async def list_records(request: Request, guild_id: int, kind: str, status: str =
         items = []
         for r in rows:
             d = {c.name: getattr(r, c.name) for c in model.__table__.columns}
-            items.append({k: (str(v) if isinstance(v, int) and k.endswith("_id") and v else
+            items.append({k: (str(v) if isinstance(v, int) and _is_discord_id(k) and v else
                               _iso(v) if hasattr(v, "isoformat") else v) for k, v in d.items()})
     return {"items": items}
 

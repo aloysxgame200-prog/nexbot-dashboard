@@ -611,3 +611,143 @@ def test_voice_logs_category_is_free_and_used_by_the_listener():
         cog.send.assert_not_awaited()
         await bot.close()
     run(scenario())
+
+
+# ----------------------------------------------------------------- tickets : double clic, prise en charge, mentions
+def _ticket_interaction(guild, user):
+    response = SimpleNamespace(defer=AsyncMock(), send_message=AsyncMock(), is_done=lambda: True)
+    return SimpleNamespace(guild=guild, user=user, response=response, followup=SimpleNamespace(send=AsyncMock()))
+
+
+def test_double_click_does_not_open_two_tickets():
+    async def scenario():
+        import discord
+
+        from nexbot.bot.cogs.tickets import Tickets
+        from nexbot.core import settings_store
+        from nexbot.core.models import Ticket
+
+        _clean_tickets()
+        with session_scope() as db:
+            settings_store.save(db, GUILD_A, "tickets", {"enabled": True}, user_id=1, premium=False)
+        bot = make_bot()
+        cog = Tickets(bot)
+        assert cog.reserve_open(GUILD_A, 601) is True
+        assert cog.reserve_open(GUILD_A, 601) is False         # 2e clic pendant la création
+        assert cog.reserve_open(GUILD_A, 602) is True          # un autre membre n'est pas bloqué
+        cog.release_open(GUILD_A, 602)
+
+        user = MagicMock(spec=discord.Member)
+        user.id = 601
+        guild = MagicMock(spec=discord.Guild)
+        guild.id = GUILD_A
+        interaction = _ticket_interaction(guild, user)
+        await cog.open_ticket(interaction, "Support")          # ouverture déjà en cours : refus propre
+        sent = interaction.followup.send.await_args.kwargs["embed"].description
+        assert "déjà en cours de création" in sent
+        guild.create_text_channel.assert_not_called()
+        with session_scope() as db:
+            assert db.query(Ticket).count() == 0
+        cog.release_open(GUILD_A, 601)
+
+        cog._open_ticket = AsyncMock(side_effect=RuntimeError("boom"))
+        with pytest.raises(RuntimeError):
+            await cog.open_ticket(_ticket_interaction(guild, user), "Support")
+        assert cog.reserve_open(GUILD_A, 601) is True          # libéré même en cas d'erreur
+        await bot.close()
+        _clean_tickets()
+    run(scenario())
+
+
+def test_ticket_claim_rules():
+    async def scenario():
+        from nexbot.bot.cogs.tickets import Tickets
+        from nexbot.core.models import Ticket
+
+        _clean_tickets()
+        bot = make_bot()
+        cog = Tickets(bot)
+        with session_scope() as db:
+            t = Ticket(guild_id=GUILD_A, opener_id=601, channel_id=700000000000000001)
+            closed = Ticket(guild_id=GUILD_A, opener_id=601, status="closed")
+            db.add_all([t, closed])
+            db.flush()
+            tid, closed_id = t.id, closed.id
+        assert await cog.claim(tid, 801) == ("ok", None)
+        assert await cog.claim(tid, 801) == ("already", 801)
+        assert await cog.claim(tid, 802) == ("taken", 801)          # pas de vol de ticket…
+        assert await cog.claim(tid, 802, force=True) == ("ok", 801)  # …sauf « Gérer les salons »
+        assert await cog.claim(closed_id, 801) == ("missing", None)
+        assert await cog.claim(999999, 801) == ("missing", None)
+        with session_scope() as db:
+            assert db.get(Ticket, tid).claimed_by == 802
+        await bot.close()
+        _clean_tickets()
+    run(scenario())
+
+
+# ----------------------------------------------------------------- sanctions : permissions vérifiées avant le MP
+def test_missing_bot_permission_detection():
+    from nexbot.bot.cogs.moderation import missing_bot_permission
+
+    def me(**perms):
+        base = dict(administrator=False, kick_members=False, ban_members=False, moderate_members=False)
+        return SimpleNamespace(guild_permissions=SimpleNamespace(**{**base, **perms}))
+    assert missing_bot_permission(me(), "ban") == "Bannir des membres"
+    assert missing_bot_permission(me(), "tempban") == "Bannir des membres"
+    assert missing_bot_permission(me(), "kick") == "Expulser des membres"
+    assert missing_bot_permission(me(), "timeout") == "Exclure temporairement des membres"
+    assert missing_bot_permission(me(), "warn") is None             # un avertissement ne demande rien
+    assert missing_bot_permission(me(ban_members=True), "ban") is None
+    assert missing_bot_permission(me(administrator=True), "kick") is None
+
+
+def test_ban_without_permission_sends_no_dm_and_leaves_no_record():
+    async def scenario():
+        from nexbot.bot.cogs.moderation import Moderation, ModerationError
+        from nexbot.core.models import Sanction
+
+        bot = make_bot()
+        cog = Moderation(bot)
+        me = SimpleNamespace(id=999, top_role=10, guild_permissions=SimpleNamespace(
+            administrator=False, ban_members=False, kick_members=True, moderate_members=True))
+        target = SimpleNamespace(id=557, top_role=1, name="zed", display_name="Zed", mention="<@557>", send=AsyncMock(),
+                                 display_avatar=SimpleNamespace(url="https://cdn/z.png"),
+                                 created_at=datetime(2020, 1, 1, tzinfo=timezone.utc))
+        guild = SimpleNamespace(id=GUILD_A, owner_id=1, me=me, name="Serveur A", icon=None, member_count=3,
+                                get_member=lambda uid: target, ban=AsyncMock())
+        with pytest.raises(ModerationError, match="Bannir des membres"):
+            await cog.sanction(guild, target, SimpleNamespace(id=777), "ban", "x")
+        target.send.assert_not_awaited()                        # aucun faux « tu as été banni »
+        guild.ban.assert_not_awaited()
+        with session_scope() as db:
+            assert db.query(Sanction).filter_by(user_id=557).count() == 0
+        await bot.close()
+    run(scenario())
+
+
+def test_untimeout_closes_the_active_timeout_case():
+    async def scenario():
+        from nexbot.bot.cogs.moderation import Moderation
+        from nexbot.core.models import Sanction
+
+        bot = make_bot()
+        cog = Moderation(bot)
+        me = SimpleNamespace(id=999, top_role=10, mention="<@999>", name="Nexbot",
+                             display_avatar=SimpleNamespace(url="https://cdn/b.png"),
+                             guild_permissions=SimpleNamespace(administrator=False, moderate_members=True))
+        target = SimpleNamespace(id=558, top_role=1, mention="<@558>", name="max", display_name="Max", bot=False,
+                                 display_avatar=SimpleNamespace(url="https://cdn/m.png"),
+                                 created_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                                 send=AsyncMock(), timeout=AsyncMock())
+        guild = SimpleNamespace(id=GUILD_A, owner_id=1, me=me, name="Serveur A", icon=None, member_count=3,
+                                get_member=lambda uid: target)
+        mod = SimpleNamespace(id=777, mention="<@777>", name="mod", display_avatar=me.display_avatar)
+        case_id, _ = await cog.sanction(guild, target, mod, "timeout", "calme-toi", timedelta(hours=1))
+        with session_scope() as db:
+            assert db.get(Sanction, case_id).active is True
+        await cog.sanction(guild, target, mod, "untimeout", "levé")
+        with session_scope() as db:
+            assert db.get(Sanction, case_id).active is False     # /case affiche « terminée »
+        await bot.close()
+    run(scenario())

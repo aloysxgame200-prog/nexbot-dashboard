@@ -1,4 +1,5 @@
-"""Tickets : panneau, ouverture privée, fermeture avec transcription, catégories et fermeture auto (Premium)."""
+"""Tickets : panneau, ouverture privée, prise en charge, fermeture avec transcription,
+catégories et fermeture auto (Premium)."""
 from __future__ import annotations
 
 import io
@@ -65,6 +66,7 @@ class Tickets(commands.Cog):
     def __init__(self, bot: Nexbot) -> None:
         self.bot = bot
         self._closing: set[int] = set()  # tickets en cours de fermeture (évite les doubles fermetures)
+        self._opening: set[tuple[int, int]] = set()  # (serveur, membre) en cours d'ouverture (évite les doubles clics)
         bot.register_job("post_ticket_panel", self.job_post_panel)
 
     async def cog_load(self) -> None:
@@ -115,7 +117,27 @@ class Tickets(commands.Cog):
             await utils.reply(interaction, utils.err("Les tickets sont désactivés sur ce serveur."))
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
+        if not self.reserve_open(guild.id, user.id):
+            await utils.reply(interaction, utils.err("Votre ticket est déjà en cours de création, patientez un instant."))
+            return
+        try:
+            await self._open_ticket(interaction, guild, user, conf, category_name)
+        finally:
+            self.release_open(guild.id, user.id)
 
+    def reserve_open(self, guild_id: int, user_id: int) -> bool:
+        """Réserve l'ouverture d'un ticket pour un membre. False si une ouverture est déjà en cours (double clic)."""
+        key = (guild_id, user_id)
+        if key in self._opening:
+            return False
+        self._opening.add(key)
+        return True
+
+    def release_open(self, guild_id: int, user_id: int) -> None:
+        self._opening.discard((guild_id, user_id))
+
+    async def _open_ticket(self, interaction: discord.Interaction, guild: discord.Guild, user: discord.Member,
+                           conf, category_name: str) -> None:
         if await self.open_count(guild, user.id) >= conf.max_open_per_user:
             await utils.reply(interaction, utils.err(f"Vous avez déjà {conf.max_open_per_user} ticket(s) ouvert(s)."))
             return
@@ -168,9 +190,9 @@ class Tickets(commands.Cog):
         embed = discord.Embed(title=f"🎫 Ticket n°{ticket_id} — {category_name}",
                               description=render_text(conf.open_text, values)[:4000],
                               color=await self.bot.embed_color(guild.id))
-        mentions = " ".join([user.mention] + [r.mention for r in staff])
+        mentions = " ".join([user.mention] + ([r.mention for r in staff] if conf.ping_staff else []))
         await channel.send(content=mentions, embed=embed, view=CloseView(self),
-                           allowed_mentions=discord.AllowedMentions(users=True, roles=True))
+                           allowed_mentions=discord.AllowedMentions(users=True, roles=conf.ping_staff))
         await utils.reply(interaction, utils.ok(f"Votre ticket est ouvert : {channel.mention}"))
         self.bot.record_usage(user.id, "ticket:open")
         self.bot.stat(guild.id, "tickets")
@@ -307,9 +329,12 @@ class Tickets(commands.Cog):
                 row = db.get(Ticket, ticket_id)
                 if row:
                     row.status, row.closed_at, row.closed_by = "closed", utcnow(), closer.id
-        await self.bot.db(close_row)
+                    return row.claimed_by
+                return None
+        claimed_by = await self.bot.db(close_row)
         embed = discord.Embed(title=f"🔒 Ticket n°{ticket_id} fermé", color=utils.DANGER,
                               description=f"Auteur : <@{opener_id}> · {category}\nFermé par : {closer.mention}"
+                                          + (f"\nPris en charge par : <@{claimed_by}>" if claimed_by else "")
                                           + (f"\n{reason}" if reason else "") + f"\nMessages : {len(lines)}")
         await self._log(guild, conf, embed, transcript)
         opener = guild.get_member(opener_id)
@@ -386,6 +411,53 @@ class Tickets(commands.Cog):
             await utils.reply(interaction, utils.err("Réservé au staff des tickets."))
             return None
         return info
+
+    async def claim(self, ticket_id: int, staff_id: int, force: bool = False) -> tuple[str, int | None]:
+        """Attribue un ticket ouvert à un membre du staff.
+
+        Statut : « ok », « already » (déjà à lui), « taken » (pris par quelqu'un d'autre, sans `force`)
+        ou « missing » (ticket fermé ou inconnu). Renvoie aussi le précédent responsable.
+        """
+        def save():
+            with session_scope() as db:
+                row = db.get(Ticket, ticket_id)
+                if row is None or row.status != "open":
+                    return "missing", None
+                previous = row.claimed_by
+                if previous == staff_id:
+                    return "already", previous
+                if previous and not force:
+                    return "taken", previous
+                row.claimed_by = staff_id
+                return "ok", previous
+        return await self.bot.db(save)
+
+    @ticket.command(name="claim", description="Prendre en charge le ticket actuel (staff)")
+    async def t_claim(self, interaction: discord.Interaction) -> None:
+        info = await self._staff_in_ticket(interaction)
+        if info is None:
+            return
+        member = interaction.user
+        assert isinstance(member, discord.Member)
+        status, previous = await self.claim(info[0], member.id, force=member.guild_permissions.manage_channels)
+        if status == "missing":
+            await utils.reply(interaction, utils.err("Ce ticket n'est plus ouvert."))
+            return
+        if status == "already":
+            await utils.reply(interaction, utils.err("Vous avez déjà pris ce ticket en charge."))
+            return
+        if status == "taken":
+            await utils.reply(interaction, utils.err(f"Ce ticket est déjà pris en charge par <@{previous}>. "
+                                                     "Seul un membre avec « Gérer les salons » peut le reprendre."))
+            return
+        text = f"🙋 {member.mention} prend en charge ce ticket." + (f" (à la place de <@{previous}>)" if previous else "")
+        await interaction.response.send_message(
+            embed=discord.Embed(description=text, color=utils.INFO),
+            allowed_mentions=discord.AllowedMentions.none())
+        conf = await self.bot.conf(interaction.guild_id, "tickets")  # type: ignore[arg-type]
+        await self._log(interaction.guild, conf, discord.Embed(  # type: ignore[arg-type]
+            title=f"🙋 Ticket n°{info[0]} pris en charge", color=utils.INFO,
+            description=f"Par : {member.mention} · Auteur : <@{info[1]}> · {interaction.channel.mention}"))  # type: ignore[union-attr]
 
     @ticket.command(name="add", description="Ajouter un membre au ticket")
     @app_commands.rename(member="membre")

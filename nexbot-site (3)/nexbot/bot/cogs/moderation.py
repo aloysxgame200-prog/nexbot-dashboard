@@ -29,6 +29,26 @@ class ModerationError(Exception):
     """Erreur présentable à l'utilisateur."""
 
 
+# Permission Discord dont Nexbot a besoin pour chaque sanction (l'avertissement n'en demande aucune)
+REQUIRED_PERMISSION = {"kick": ("kick_members", "Expulser des membres"),
+                       "ban": ("ban_members", "Bannir des membres"),
+                       "tempban": ("ban_members", "Bannir des membres"),
+                       "unban": ("ban_members", "Bannir des membres"),
+                       "timeout": ("moderate_members", "Exclure temporairement des membres"),
+                       "untimeout": ("moderate_members", "Exclure temporairement des membres")}
+
+
+def missing_bot_permission(me, kind: str) -> str | None:
+    """Nom de la permission qui manque à Nexbot pour appliquer `kind`, ou None si tout est en ordre."""
+    needed = REQUIRED_PERMISSION.get(kind)
+    perms = getattr(me, "guild_permissions", None)
+    if needed is None or perms is None:
+        return None
+    if getattr(perms, "administrator", False) or getattr(perms, needed[0], False):
+        return None
+    return needed[1]
+
+
 class Moderation(commands.Cog):
     def __init__(self, bot: Nexbot) -> None:
         self.bot = bot
@@ -113,6 +133,9 @@ class Moderation(commands.Cog):
                 raise ModerationError("Impossible de sanctionner le propriétaire du serveur.")
             if member.top_role >= me.top_role and kind != "warn":
                 raise ModerationError("Le rôle de ce membre est au-dessus du mien : je ne peux pas le sanctionner.")
+        missing = missing_bot_permission(me, kind)
+        if missing:  # vérifié AVANT le MP : le membre ne doit pas être prévenu d'une sanction qui va échouer
+            raise ModerationError(f"Il me manque la permission « {missing} » pour cette action.")
         expires_at = utcnow() + duration if duration and kind in {"timeout", "tempban"} else None
 
         dm_sent = False
@@ -136,6 +159,8 @@ class Moderation(commands.Cog):
         except discord.NotFound:
             await self._cancel(case_id)
             raise ModerationError("Utilisateur introuvable" + (" ou non banni." if kind == "unban" else "."))
+        if kind == "untimeout":
+            await self._close_active(guild.id, target.id, "timeout")
         if kind in {"warn", "timeout"}:
             dm_sent = await self._notify(guild, target, kind, reason, duration, moderator, case_id)
         await self._log(guild, kind, target, moderator, reason, duration, case_id, automatic)
@@ -148,6 +173,17 @@ class Moderation(commands.Cog):
             if escalate:
                 await self._escalate(guild, member, count)
         return case_id, dm_sent
+
+    async def _close_active(self, guild_id: int, user_id: int, kind: str) -> int:
+        """Marque comme terminées les sanctions actives d'un type (ex. timeout levé à la main). Renvoie leur nombre."""
+        def close():
+            with session_scope() as db:
+                rows = db.scalars(select(Sanction).where(Sanction.guild_id == guild_id, Sanction.user_id == user_id,
+                                                         Sanction.type == kind, Sanction.active.is_(True))).all()
+                for row in rows:
+                    row.active = False
+                return len(rows)
+        return await self.bot.db(close)
 
     async def _cancel(self, case_id: int) -> None:
         def delete():
@@ -298,13 +334,7 @@ class Moderation(commands.Cog):
             await utils.reply(interaction, utils.err(str(exc)))
             return
 
-        def close_tempbans():
-            with session_scope() as db:
-                for s in db.scalars(select(Sanction).where(Sanction.guild_id == interaction.guild_id,
-                                                           Sanction.user_id == uid, Sanction.type == "tempban",
-                                                           Sanction.active.is_(True))):
-                    s.active = False
-        await self.bot.db(close_tempbans)
+        await self._close_active(interaction.guild_id, uid, "tempban")  # type: ignore[arg-type]
         await self._done(interaction, "unban", user, case_id, dm)
 
     @app_commands.command(name="kick", description="Expulser un membre")

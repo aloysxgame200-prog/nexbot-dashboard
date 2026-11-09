@@ -534,8 +534,9 @@
     if (!data.items.length) { card.append(h("div", { class: "empty", text: "Rien pour le moment." })); return card; }
     const t = h("table");
     if (kind === "tickets") {
-      t.append(h("thead", {}, h("tr", {}, ["#", "Membre", "Catégorie", "Statut", "Ouvert le"].map((x) => h("th", { text: x })))));
+      t.append(h("thead", {}, h("tr", {}, ["#", "Membre", "Catégorie", "Pris en charge par", "Statut", "Ouvert le"].map((x) => h("th", { text: x })))));
       t.append(h("tbody", {}, data.items.map((r) => h("tr", {}, h("td", { text: r.id }), h("td", { class: "mono", text: r.opener_id }), h("td", { text: r.category }),
+        h("td", r.claimed_by ? { class: "mono", text: r.claimed_by } : { class: "muted", text: "—" }),
         h("td", {}, h("span", { class: "badge " + (r.status === "open" ? "ok" : "off"), text: r.status === "open" ? "Ouvert" : "Fermé" })), h("td", { text: fmtDate(r.created_at) })))));
     } else if (kind === "suggestions") {
       const lab = { pending: ["En attente", "warn"], accepted: ["Acceptée", "ok"], refused: ["Refusée", "danger"] };

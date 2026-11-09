@@ -313,3 +313,30 @@ def test_guild_page_and_overview_render(make_client):
     assert d["bot"]["online"] is False
     data = alice.get(f"/api/guilds/{GUILD_A}/discord").json()
     assert data["channels"][0]["id"] == CHANNEL_A and all(r["name"] != "@everyone" for r in data["roles"])
+
+
+def test_ticket_records_send_discord_ids_as_text(make_client):
+    """Les identifiants (auteur, responsable) arrivent en texte : JavaScript arrondirait les entiers 64 bits."""
+    from nexbot.core.models import Ticket
+
+    staff = 300000000000000123
+    with session_scope() as db:
+        db.query(Ticket).delete()
+        db.add(Ticket(guild_id=GUILD_A, opener_id=300000000000000009, channel_id=700000000000000001, claimed_by=staff))
+        db.add(Ticket(guild_id=GUILD_B, opener_id=300000000000000009, claimed_by=staff))
+    items = make_client("alice").get(f"/api/guilds/{GUILD_A}/records/tickets").json()["items"]
+    assert len(items) == 1                                             # uniquement les tickets de ce serveur
+    assert items[0]["claimed_by"] == str(staff) and items[0]["opener_id"] == "300000000000000009"
+    with session_scope() as db:
+        db.query(Ticket).delete()
+
+
+def test_ticket_ping_staff_option_is_free_and_on_by_default():
+    from nexbot.core.schemas import TicketSettings, describe_module
+
+    assert TicketSettings().ping_staff is True
+    field = next(f for f in describe_module("tickets") if f["name"] == "ping_staff")
+    assert field["premium"] is False and field["ui"] == "toggle"
+    with session_scope() as db:
+        settings_store.save(db, GUILD_A, "tickets", {"ping_staff": False}, user_id=1, premium=False)
+        assert settings_store.effective(db, GUILD_A, "tickets", False).ping_staff is False
