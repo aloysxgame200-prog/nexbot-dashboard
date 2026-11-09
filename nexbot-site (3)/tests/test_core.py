@@ -183,3 +183,27 @@ def test_stripe_webhook_signature(monkeypatch, make_client, clean_guild_data):
     assert ok.status_code == 200, ok.text
     with session_scope() as db:
         assert premium.is_premium(db, GUILD_A)
+
+
+def test_migration_v3_adds_ticket_claim_column_without_touching_data(tmp_path):
+    """Une base créée avant la v3 reçoit la colonne « claimed_by » et garde ses tickets."""
+    from sqlalchemy import create_engine, inspect, text
+
+    from nexbot.core import migrations
+    from nexbot.core.models import SchemaVersion
+
+    engine = create_engine(f"sqlite:///{tmp_path}/old.db")
+    with engine.begin() as conn:  # simule une base en v2 avec l'ancien schéma des tickets
+        SchemaVersion.__table__.create(conn)
+        conn.execute(SchemaVersion.__table__.insert(), [{"version": 1}, {"version": 2}])
+        conn.execute(text("CREATE TABLE tickets (id INTEGER PRIMARY KEY, guild_id BIGINT, channel_id BIGINT, "
+                          "opener_id BIGINT, category VARCHAR(64), status VARCHAR(12), created_at DATETIME, "
+                          "closed_at DATETIME, closed_by BIGINT)"))
+        conn.execute(text("INSERT INTO tickets (id, guild_id, opener_id, category, status) "
+                          "VALUES (7, 1, 2, 'Support', 'open')"))
+    assert migrations.run_migrations(engine) == LATEST_VERSION
+    assert migrations.run_migrations(engine) == LATEST_VERSION            # rejouable sans erreur
+    with engine.connect() as conn:
+        assert "claimed_by" in {c["name"] for c in inspect(conn).get_columns("tickets")}
+        assert conn.execute(text("SELECT id, status, claimed_by FROM tickets")).all() == [(7, "open", None)]
+    engine.dispose()

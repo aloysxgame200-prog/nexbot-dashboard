@@ -128,6 +128,8 @@ class ModerationSettings(ModuleModel):
     banned_words: list[str] = F([], "Mots interdits", ui="words", section="Filtres", free_max=50,
                                 help="Un mot ou une expression par ligne. 50 en gratuit, 1000 en Premium.",
                                 max_length=1000)
+    filter_edits: bool = F(True, "Vérifier aussi les messages modifiés", section="Filtres",
+                           help="Empêche de contourner le filtre en modifiant un message après l'avoir envoyé.")
     automod_action: Literal["delete", "warn", "timeout"] = F(
         "delete", "Action sur un message filtré", ui="select", section="Filtres",
         options=[["delete", "Supprimer"], ["warn", "Supprimer + avertir"], ["timeout", "Supprimer + timeout 10 min"]])
@@ -221,13 +223,14 @@ LOG_CATEGORIES: list[tuple[str, str]] = [
     ("moderation", "Sanctions et actions des modérateurs"),
     ("roles", "Rôles des membres"),
     ("channels", "Salons créés / supprimés"),
+    ("voice", "Salons vocaux (arrivées, départs, déplacements)"),
     ("permissions", "Changements de permissions"),
     ("antiraid", "Anti-raid"),
     ("security", "Incidents de sécurité"),
     ("errors", "Erreurs de Nexbot"),
 ]
 _DEFAULT_LOG_COLORS = {"members": "#3BA55C", "messages": "#FAA61A", "moderation": "#ED4245", "roles": "#5865F2",
-                       "channels": "#00B0F4", "permissions": "#EB459E", "antiraid": "#ED4245",
+                       "channels": "#00B0F4", "voice": "#1ABC9C", "permissions": "#EB459E", "antiraid": "#ED4245",
                        "security": "#ED4245", "errors": "#99AAB5"}
 
 _log_fields: dict[str, Any] = {
@@ -285,6 +288,8 @@ class TicketSettings(ModuleModel):
     staff_role_ids: list[str] = F([], "Rôles du staff (accès aux tickets)", ui="roles", section="Général")
     log_channel_id: str = F("", "Salon des logs de tickets", ui="channel", section="Général")
     max_open_per_user: int = F(1, "Tickets ouverts maximum par membre", section="Général", ge=1, le=5)
+    ping_staff: bool = F(True, "Mentionner les rôles du staff à l'ouverture", section="Général",
+                         help="Décochez pour ouvrir les tickets sans notifier le staff (ils restent visibles par lui).")
     panel_title: str = F("Support", "Titre du panneau", section="Panneau", max_length=256)
     panel_description: str = F("Clique sur le bouton ci-dessous pour ouvrir un ticket privé avec le staff.",
                                "Description du panneau", ui="textarea", section="Panneau", max_length=2000)

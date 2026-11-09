@@ -119,7 +119,9 @@ def test_sliding_counter_window():
 
 # ----------------------------------------------------------------- utilitaires
 @pytest.mark.parametrize("text,seconds", [("10m", 600), ("2h30m", 9000), ("1j", 86400), ("1w", 604800),
-                                          ("15", 900), ("3 jours", 259200), ("", None), ("abc", None), ("10x", None)])
+                                          ("15", 900), ("3 jours", 259200), ("", None), ("abc", None), ("10x", None),
+                                          ("2sem", 1209600), ("1 semaine", 604800), ("2 semaines", 1209600),
+                                          ("1sem2j", 777600), ("45s", 45), ("5 secondes", 5), ("2 weeks", 1209600)])
 def test_parse_duration(text, seconds):
     d = utils.parse_duration(text)
     assert (d.total_seconds() if d else None) == seconds
@@ -393,3 +395,359 @@ def test_ban_reaction_requires_explicit_confirmation():
     with pytest.raises(Exception):
         AntiRaidSettings(nuke_action="ban")
     assert AntiRaidSettings(nuke_action="ban", confirm_destructive=True).nuke_action == "ban"
+
+
+# ----------------------------------------------------------------- mise à jour du 26/10/2026
+def test_edited_message_is_filtered_unless_disabled():
+    async def scenario():
+        from nexbot.bot.cogs.automod import AutoMod
+        from nexbot.core import settings_store
+
+        bot = make_bot()
+        cog = AutoMod(bot)
+        cog._exempt = lambda message, conf: False
+        cog._punish = AsyncMock()
+        guild = SimpleNamespace(id=GUILD_A)
+        author = SimpleNamespace(id=555, bot=False)
+
+        def msg(content):
+            return SimpleNamespace(author=author, guild=guild, webhook_id=None, content=content)
+
+        await cog.on_message_edit(msg("salut"), msg("rejoins discord.gg/abcdef"))
+        cog._punish.assert_awaited_once()
+        assert cog._punish.await_args.args[3] == "invite"
+        assert "message modifié" in cog._punish.await_args.args[2]
+
+        cog._punish.reset_mock()
+        await cog.on_message_edit(msg("discord.gg/abcdef"), msg("discord.gg/abcdef"))  # contenu inchangé (ex. aperçu de lien)
+        await cog.on_message_edit(msg("salut"), msg("<@1> <@2> <@3> <@4> <@5> <@6> <@7> <@8>"))  # mentions : pas de notif
+        cog._punish.assert_not_awaited()
+
+        with session_scope() as db:
+            settings_store.save(db, GUILD_A, "moderation", {"filter_edits": False}, user_id=1, premium=False)
+        bot.invalidate(GUILD_A)
+        await cog.on_message_edit(msg("salut"), msg("rejoins discord.gg/abcdef"))
+        cog._punish.assert_not_awaited()                     # option coupée dans le Dashboard
+        await bot.close()
+    run(scenario())
+
+
+def test_filter_edits_option_is_free_and_on_by_default():
+    from nexbot.core.schemas import describe_module
+
+    assert ModerationSettings().filter_edits is True
+    field = next(f for f in describe_module("moderation") if f["name"] == "filter_edits")
+    assert field["premium"] is False and field["ui"] == "toggle"
+
+
+def test_unwarn_and_clearwarns():
+    async def scenario():
+        from nexbot.bot.cogs.moderation import Moderation
+        from nexbot.core.models import Sanction
+
+        bot = make_bot()
+        cog = Moderation(bot)
+        with session_scope() as db:
+            ids = []
+            for uid in (601, 601, 601, 602):
+                s = Sanction(guild_id=GUILD_A, user_id=uid, moderator_id=1, type="warn", reason="x")
+                db.add(s)
+                db.flush()
+                ids.append(s.id)
+            other = Sanction(guild_id=GUILD_A + 1, user_id=601, moderator_id=1, type="warn", reason="ailleurs")
+            db.add(other)
+            db.flush()
+            other_id = other.id
+        assert await cog.revoke_warn(GUILD_A, ids[0], 7) == ("ok", 601)
+        assert await cog.revoke_warn(GUILD_A, ids[0], 7) == ("already", 601)   # pas de faux « retiré »
+        assert await cog.revoke_warn(GUILD_A, other_id, 7) == ("missing", None)  # autre serveur
+        assert await cog.revoke_warn(GUILD_A, 999999, 7) == ("missing", None)
+
+        assert await cog.revoke_all_warns(GUILD_A, 601, 7) == 2
+        assert await cog.revoke_all_warns(GUILD_A, 601, 7) == 0
+        assert await cog.active_warns(GUILD_A, 601) == 0
+        assert await cog.active_warns(GUILD_A, 602) == 1        # les autres membres ne sont pas touchés
+        with session_scope() as db:
+            assert db.get(Sanction, other_id).active is True    # ni les autres serveurs
+            assert db.query(Sanction).filter_by(guild_id=GUILD_A, user_id=601).count() == 3  # historique conservé
+            assert all(s.revoked_by == 7 for s in db.query(Sanction).filter_by(guild_id=GUILD_A, user_id=601))
+        await bot.close()
+    run(scenario())
+
+
+def _clean_tickets():
+    from sqlalchemy import delete
+
+    from nexbot.core.models import Ticket
+
+    with session_scope() as db:
+        db.execute(delete(Ticket))
+
+
+def test_ticket_with_deleted_channel_no_longer_blocks_member():
+    async def scenario():
+        from nexbot.bot.cogs.tickets import Tickets
+        from nexbot.core.models import Ticket
+
+        _clean_tickets()
+        bot = make_bot()
+        cog = Tickets(bot)
+        alive_channel = 700000000000000001
+        with session_scope() as db:
+            db.add(Ticket(guild_id=GUILD_A, opener_id=601, channel_id=700000000000000099))  # salon supprimé à la main
+            db.add(Ticket(guild_id=GUILD_A, opener_id=601, channel_id=None,                 # création interrompue
+                          created_at=datetime.now(timezone.utc) - timedelta(hours=1)))
+            db.add(Ticket(guild_id=GUILD_A, opener_id=602, channel_id=alive_channel))
+            db.add(Ticket(guild_id=GUILD_A, opener_id=602, channel_id=None))               # création en cours
+        guild = SimpleNamespace(id=GUILD_A, get_channel=lambda cid: object() if cid == alive_channel else None)
+        assert await cog.open_count(guild, 601) == 0           # le membre peut rouvrir un ticket
+        assert await cog.open_count(guild, 602) == 2           # tickets bien vivants : comptés
+        with session_scope() as db:
+            assert db.query(Ticket).filter_by(opener_id=601, status="closed").count() == 2
+        await bot.close()
+        _clean_tickets()
+    run(scenario())
+
+
+def test_ticket_closed_when_its_channel_is_deleted():
+    async def scenario():
+        from nexbot.bot.cogs.tickets import Tickets
+        from nexbot.core.models import Ticket
+
+        _clean_tickets()
+        bot = make_bot()
+        cog = Tickets(bot)
+        with session_scope() as db:
+            db.add(Ticket(guild_id=GUILD_A, opener_id=601, channel_id=700000000000000005))
+        channel = SimpleNamespace(id=700000000000000005, guild=SimpleNamespace(id=GUILD_A, get_channel=lambda cid: None))
+        await cog.on_guild_channel_delete(channel)
+        with session_scope() as db:
+            assert db.query(Ticket).filter_by(channel_id=700000000000000005).one().status == "closed"
+        await cog.on_guild_channel_delete(SimpleNamespace(id=1, guild=channel.guild))  # salon quelconque : rien
+        await bot.close()
+        _clean_tickets()
+    run(scenario())
+
+
+def test_ticket_cannot_be_closed_twice_at_once():
+    async def scenario():
+        from nexbot.bot.cogs.tickets import Tickets
+
+        bot = make_bot()
+        cog = Tickets(bot)
+        assert cog.reserve_close(42) is True
+        assert cog.reserve_close(42) is False                 # deuxième clic pendant les 5 secondes
+        cog._close_ticket = AsyncMock(side_effect=RuntimeError("boom"))
+        with pytest.raises(RuntimeError):
+            await cog.close_ticket(MagicMock(), (42, 1, "Support"), MagicMock())
+        assert cog.reserve_close(42) is True                  # libéré même en cas d'erreur
+        await bot.close()
+    run(scenario())
+
+
+# ----------------------------------------------------------------- notes internes
+def test_note_delete_is_limited_to_its_guild():
+    async def scenario():
+        from nexbot.bot.cogs.moderation import Moderation
+        from nexbot.core.models import ModNote
+
+        bot = make_bot()
+        cog = Moderation(bot)
+        with session_scope() as db:
+            mine = ModNote(guild_id=GUILD_A, user_id=601, author_id=1, content="note A")
+            other = ModNote(guild_id=GUILD_A + 1, user_id=601, author_id=1, content="note B")
+            db.add_all([mine, other])
+            db.flush()
+            mine_id, other_id = mine.id, other.id
+        assert await cog.delete_note(GUILD_A, other_id) is None        # note d'un autre serveur : intouchable
+        assert await cog.delete_note(GUILD_A, mine_id) == 601
+        assert await cog.delete_note(GUILD_A, mine_id) is None         # déjà supprimée
+        with session_scope() as db:
+            assert db.get(ModNote, mine_id) is None and db.get(ModNote, other_id) is not None
+        assert "delete" in {c.name for c in Moderation.note.commands}  # /note delete existe
+        await bot.close()
+    run(scenario())
+
+
+# ----------------------------------------------------------------- logs vocaux
+def _voice(channel_id):
+    return SimpleNamespace(channel=None if channel_id is None else SimpleNamespace(id=channel_id, mention=f"<#{channel_id}>"))
+
+
+def test_voice_change_detection():
+    from nexbot.bot.cogs.logs import Logs
+
+    assert Logs.voice_change(_voice(None), _voice(1))[0] == "🔊 Connexion vocale"
+    assert Logs.voice_change(_voice(1), _voice(None))[0] == "🔇 Déconnexion vocale"
+    title, desc = Logs.voice_change(_voice(1), _voice(2))
+    assert title == "🔀 Changement de salon vocal" and desc == "<#1> → <#2>"
+    assert Logs.voice_change(_voice(1), _voice(1)) is None      # micro coupé, stream… : pas de log
+    assert Logs.voice_change(_voice(None), _voice(None)) is None
+
+
+def test_voice_logs_category_is_free_and_used_by_the_listener():
+    from nexbot.bot.cogs.logs import Logs
+    from nexbot.core.schemas import LogSettings, describe_module
+
+    conf = LogSettings()
+    assert conf.voice_enabled is False and conf.voice_channel_id == ""   # désactivé par défaut
+    fields = {f["name"]: f for f in describe_module("logs")}
+    assert fields["voice_enabled"]["premium"] is False and fields["voice_channel_id"]["ui"] == "channel"
+    assert fields["voice_color"]["premium"] is True                      # seule la couleur reste Premium
+
+    async def scenario():
+        bot = make_bot()
+        cog = Logs(bot)
+        cog.send = AsyncMock(return_value=True)
+        member = SimpleNamespace(id=5, bot=False, mention="<@5>", guild=SimpleNamespace(id=GUILD_A),
+                                 display_avatar=SimpleNamespace(url="https://cdn/a.png"), __str__=lambda s: "m")
+        await cog.on_voice_state_update(member, _voice(None), _voice(10))
+        assert cog.send.await_args.args[1] == "voice"
+        assert "<#10>" in cog.send.await_args.args[2].description
+        cog.send.reset_mock()
+        await cog.on_voice_state_update(member, _voice(10), _voice(10))   # rien ne change de salon
+        member.bot = True
+        await cog.on_voice_state_update(member, _voice(None), _voice(10))  # bots ignorés
+        cog.send.assert_not_awaited()
+        await bot.close()
+    run(scenario())
+
+
+# ----------------------------------------------------------------- tickets : double clic, prise en charge, mentions
+def _ticket_interaction(guild, user):
+    response = SimpleNamespace(defer=AsyncMock(), send_message=AsyncMock(), is_done=lambda: True)
+    return SimpleNamespace(guild=guild, user=user, response=response, followup=SimpleNamespace(send=AsyncMock()))
+
+
+def test_double_click_does_not_open_two_tickets():
+    async def scenario():
+        import discord
+
+        from nexbot.bot.cogs.tickets import Tickets
+        from nexbot.core import settings_store
+        from nexbot.core.models import Ticket
+
+        _clean_tickets()
+        with session_scope() as db:
+            settings_store.save(db, GUILD_A, "tickets", {"enabled": True}, user_id=1, premium=False)
+        bot = make_bot()
+        cog = Tickets(bot)
+        assert cog.reserve_open(GUILD_A, 601) is True
+        assert cog.reserve_open(GUILD_A, 601) is False         # 2e clic pendant la création
+        assert cog.reserve_open(GUILD_A, 602) is True          # un autre membre n'est pas bloqué
+        cog.release_open(GUILD_A, 602)
+
+        user = MagicMock(spec=discord.Member)
+        user.id = 601
+        guild = MagicMock(spec=discord.Guild)
+        guild.id = GUILD_A
+        interaction = _ticket_interaction(guild, user)
+        await cog.open_ticket(interaction, "Support")          # ouverture déjà en cours : refus propre
+        sent = interaction.followup.send.await_args.kwargs["embed"].description
+        assert "déjà en cours de création" in sent
+        guild.create_text_channel.assert_not_called()
+        with session_scope() as db:
+            assert db.query(Ticket).count() == 0
+        cog.release_open(GUILD_A, 601)
+
+        cog._open_ticket = AsyncMock(side_effect=RuntimeError("boom"))
+        with pytest.raises(RuntimeError):
+            await cog.open_ticket(_ticket_interaction(guild, user), "Support")
+        assert cog.reserve_open(GUILD_A, 601) is True          # libéré même en cas d'erreur
+        await bot.close()
+        _clean_tickets()
+    run(scenario())
+
+
+def test_ticket_claim_rules():
+    async def scenario():
+        from nexbot.bot.cogs.tickets import Tickets
+        from nexbot.core.models import Ticket
+
+        _clean_tickets()
+        bot = make_bot()
+        cog = Tickets(bot)
+        with session_scope() as db:
+            t = Ticket(guild_id=GUILD_A, opener_id=601, channel_id=700000000000000001)
+            closed = Ticket(guild_id=GUILD_A, opener_id=601, status="closed")
+            db.add_all([t, closed])
+            db.flush()
+            tid, closed_id = t.id, closed.id
+        assert await cog.claim(tid, 801) == ("ok", None)
+        assert await cog.claim(tid, 801) == ("already", 801)
+        assert await cog.claim(tid, 802) == ("taken", 801)          # pas de vol de ticket…
+        assert await cog.claim(tid, 802, force=True) == ("ok", 801)  # …sauf « Gérer les salons »
+        assert await cog.claim(closed_id, 801) == ("missing", None)
+        assert await cog.claim(999999, 801) == ("missing", None)
+        with session_scope() as db:
+            assert db.get(Ticket, tid).claimed_by == 802
+        await bot.close()
+        _clean_tickets()
+    run(scenario())
+
+
+# ----------------------------------------------------------------- sanctions : permissions vérifiées avant le MP
+def test_missing_bot_permission_detection():
+    from nexbot.bot.cogs.moderation import missing_bot_permission
+
+    def me(**perms):
+        base = dict(administrator=False, kick_members=False, ban_members=False, moderate_members=False)
+        return SimpleNamespace(guild_permissions=SimpleNamespace(**{**base, **perms}))
+    assert missing_bot_permission(me(), "ban") == "Bannir des membres"
+    assert missing_bot_permission(me(), "tempban") == "Bannir des membres"
+    assert missing_bot_permission(me(), "kick") == "Expulser des membres"
+    assert missing_bot_permission(me(), "timeout") == "Exclure temporairement des membres"
+    assert missing_bot_permission(me(), "warn") is None             # un avertissement ne demande rien
+    assert missing_bot_permission(me(ban_members=True), "ban") is None
+    assert missing_bot_permission(me(administrator=True), "kick") is None
+
+
+def test_ban_without_permission_sends_no_dm_and_leaves_no_record():
+    async def scenario():
+        from nexbot.bot.cogs.moderation import Moderation, ModerationError
+        from nexbot.core.models import Sanction
+
+        bot = make_bot()
+        cog = Moderation(bot)
+        me = SimpleNamespace(id=999, top_role=10, guild_permissions=SimpleNamespace(
+            administrator=False, ban_members=False, kick_members=True, moderate_members=True))
+        target = SimpleNamespace(id=557, top_role=1, name="zed", display_name="Zed", mention="<@557>", send=AsyncMock(),
+                                 display_avatar=SimpleNamespace(url="https://cdn/z.png"),
+                                 created_at=datetime(2020, 1, 1, tzinfo=timezone.utc))
+        guild = SimpleNamespace(id=GUILD_A, owner_id=1, me=me, name="Serveur A", icon=None, member_count=3,
+                                get_member=lambda uid: target, ban=AsyncMock())
+        with pytest.raises(ModerationError, match="Bannir des membres"):
+            await cog.sanction(guild, target, SimpleNamespace(id=777), "ban", "x")
+        target.send.assert_not_awaited()                        # aucun faux « tu as été banni »
+        guild.ban.assert_not_awaited()
+        with session_scope() as db:
+            assert db.query(Sanction).filter_by(user_id=557).count() == 0
+        await bot.close()
+    run(scenario())
+
+
+def test_untimeout_closes_the_active_timeout_case():
+    async def scenario():
+        from nexbot.bot.cogs.moderation import Moderation
+        from nexbot.core.models import Sanction
+
+        bot = make_bot()
+        cog = Moderation(bot)
+        me = SimpleNamespace(id=999, top_role=10, mention="<@999>", name="Nexbot",
+                             display_avatar=SimpleNamespace(url="https://cdn/b.png"),
+                             guild_permissions=SimpleNamespace(administrator=False, moderate_members=True))
+        target = SimpleNamespace(id=558, top_role=1, mention="<@558>", name="max", display_name="Max", bot=False,
+                                 display_avatar=SimpleNamespace(url="https://cdn/m.png"),
+                                 created_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                                 send=AsyncMock(), timeout=AsyncMock())
+        guild = SimpleNamespace(id=GUILD_A, owner_id=1, me=me, name="Serveur A", icon=None, member_count=3,
+                                get_member=lambda uid: target)
+        mod = SimpleNamespace(id=777, mention="<@777>", name="mod", display_avatar=me.display_avatar)
+        case_id, _ = await cog.sanction(guild, target, mod, "timeout", "calme-toi", timedelta(hours=1))
+        with session_scope() as db:
+            assert db.get(Sanction, case_id).active is True
+        await cog.sanction(guild, target, mod, "untimeout", "levé")
+        with session_scope() as db:
+            assert db.get(Sanction, case_id).active is False     # /case affiche « terminée »
+        await bot.close()
+    run(scenario())

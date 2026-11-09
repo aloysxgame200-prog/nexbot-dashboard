@@ -534,8 +534,9 @@
     if (!data.items.length) { card.append(h("div", { class: "empty", text: "Rien pour le moment." })); return card; }
     const t = h("table");
     if (kind === "tickets") {
-      t.append(h("thead", {}, h("tr", {}, ["#", "Membre", "Catégorie", "Statut", "Ouvert le"].map((x) => h("th", { text: x })))));
+      t.append(h("thead", {}, h("tr", {}, ["#", "Membre", "Catégorie", "Pris en charge par", "Statut", "Ouvert le"].map((x) => h("th", { text: x })))));
       t.append(h("tbody", {}, data.items.map((r) => h("tr", {}, h("td", { text: r.id }), h("td", { class: "mono", text: r.opener_id }), h("td", { text: r.category }),
+        h("td", r.claimed_by ? { class: "mono", text: r.claimed_by } : { class: "muted", text: "—" }),
         h("td", {}, h("span", { class: "badge " + (r.status === "open" ? "ok" : "off"), text: r.status === "open" ? "Ouvert" : "Fermé" })), h("td", { text: fmtDate(r.created_at) })))));
     } else if (kind === "suggestions") {
       const lab = { pending: ["En attente", "warn"], accepted: ["Acceptée", "ok"], refused: ["Refusée", "danger"] };
@@ -856,7 +857,11 @@
       if (!/^\d{15,21}$/.test(notesUser.value.trim())) return notesBox.append(h("div", { class: "muted small", text: "Saisissez un identifiant de membre valide." }));
       const r = await api("GET", `${BASE}/notes?user_id=${notesUser.value.trim()}`);
       if (!r.items.length) notesBox.append(h("div", { class: "muted small", text: "Aucune note pour ce membre." }));
-      for (const n of r.items) notesBox.append(h("div", { class: "auto-item" }, h("div", { class: "desc" }, n.content, h("div", { class: "small muted", text: `par ${n.author_id} · ${fmtDate(n.created_at)}` }))));
+      for (const n of r.items) notesBox.append(h("div", { class: "auto-item" },
+        h("div", { class: "desc" }, n.content, h("div", { class: "small muted", text: `n°${n.id} · par ${n.author_id} · ${fmtDate(n.created_at)}` })),
+        h("button", { class: "btn sm danger", type: "button", text: "Supprimer", onclick: async () => {
+          if (!confirm("Supprimer définitivement cette note ?")) return;
+          try { await api("DELETE", `${BASE}/notes/${n.id}`); toast("Note supprimée"); loadNotes(); } catch (e) { toast(e.message, "error"); } } })));
     };
     notesUser.addEventListener("change", () => loadNotes().catch((e) => toast(e.message, "error")));
     pageEl.append(h("div", { class: "card stack" }, h("h3", { text: "Notes internes" }), h("div", { class: "row" }, h("div", { class: "grow" }, notesUser), h("button", { class: "btn", type: "button", text: "Afficher", onclick: () => loadNotes().catch((e) => toast(e.message, "error")) })),

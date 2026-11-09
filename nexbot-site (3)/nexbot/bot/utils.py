@@ -18,8 +18,9 @@ DANGER = 0xF2545B
 WARNING = 0xFBBF24
 INFO = 0x22D3EE
 
-_DURATION_RE = re.compile(r"(\d+)\s*(secondes?|sec|s|minutes?|min|m|heures?|hours?|h|jours?|days?|j|d|"
-                          r"semaines?|sem|weeks?|w)", re.IGNORECASE)
+# Les unités longues sont essayées AVANT les abréviations : sinon « 2sem » était lu « 2s » + « em » (refusé).
+_DURATION_RE = re.compile(r"(\d+)\s*(semaines?|sem|secondes?|sec|s|minutes?|min|m|heures?|hours?|h|jours?|days?|j|d|"
+                          r"weeks?|w)", re.IGNORECASE)
 _UNITS = {"s": 1, "m": 60, "h": 3600, "j": 86400, "d": 86400, "w": 604800}
 
 

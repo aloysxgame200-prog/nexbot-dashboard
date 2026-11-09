@@ -146,6 +146,7 @@ class Ticket(Base):
     created_at: Mapped[datetime] = mapped_column(TZ, default=utcnow)
     closed_at: Mapped[datetime | None] = mapped_column(TZ, nullable=True)
     closed_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    claimed_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # membre du staff en charge (v3)
 
 
 class Suggestion(Base):
