@@ -29,6 +29,26 @@ class ModerationError(Exception):
     """Erreur présentable à l'utilisateur."""
 
 
+# Permission Discord dont Nexbot a besoin pour chaque sanction (l'avertissement n'en demande aucune)
+REQUIRED_PERMISSION = {"kick": ("kick_members", "Expulser des membres"),
+                       "ban": ("ban_members", "Bannir des membres"),
+                       "tempban": ("ban_members", "Bannir des membres"),
+                       "unban": ("ban_members", "Bannir des membres"),
+                       "timeout": ("moderate_members", "Exclure temporairement des membres"),
+                       "untimeout": ("moderate_members", "Exclure temporairement des membres")}
+
+
+def missing_bot_permission(me, kind: str) -> str | None:
+    """Nom de la permission qui manque à Nexbot pour appliquer `kind`, ou None si tout est en ordre."""
+    needed = REQUIRED_PERMISSION.get(kind)
+    perms = getattr(me, "guild_permissions", None)
+    if needed is None or perms is None:
+        return None
+    if getattr(perms, "administrator", False) or getattr(perms, needed[0], False):
+        return None
+    return needed[1]
+
+
 class Moderation(commands.Cog):
     def __init__(self, bot: Nexbot) -> None:
         self.bot = bot
@@ -113,6 +133,9 @@ class Moderation(commands.Cog):
                 raise ModerationError("Impossible de sanctionner le propriétaire du serveur.")
             if member.top_role >= me.top_role and kind != "warn":
                 raise ModerationError("Le rôle de ce membre est au-dessus du mien : je ne peux pas le sanctionner.")
+        missing = missing_bot_permission(me, kind)
+        if missing:  # vérifié AVANT le MP : le membre ne doit pas être prévenu d'une sanction qui va échouer
+            raise ModerationError(f"Il me manque la permission « {missing} » pour cette action.")
         expires_at = utcnow() + duration if duration and kind in {"timeout", "tempban"} else None
 
         dm_sent = False
@@ -136,6 +159,8 @@ class Moderation(commands.Cog):
         except discord.NotFound:
             await self._cancel(case_id)
             raise ModerationError("Utilisateur introuvable" + (" ou non banni." if kind == "unban" else "."))
+        if kind == "untimeout":
+            await self._close_active(guild.id, target.id, "timeout")
         if kind in {"warn", "timeout"}:
             dm_sent = await self._notify(guild, target, kind, reason, duration, moderator, case_id)
         await self._log(guild, kind, target, moderator, reason, duration, case_id, automatic)
@@ -148,6 +173,17 @@ class Moderation(commands.Cog):
             if escalate:
                 await self._escalate(guild, member, count)
         return case_id, dm_sent
+
+    async def _close_active(self, guild_id: int, user_id: int, kind: str) -> int:
+        """Marque comme terminées les sanctions actives d'un type (ex. timeout levé à la main). Renvoie leur nombre."""
+        def close():
+            with session_scope() as db:
+                rows = db.scalars(select(Sanction).where(Sanction.guild_id == guild_id, Sanction.user_id == user_id,
+                                                         Sanction.type == kind, Sanction.active.is_(True))).all()
+                for row in rows:
+                    row.active = False
+                return len(rows)
+        return await self.bot.db(close)
 
     async def _cancel(self, case_id: int) -> None:
         def delete():
@@ -298,13 +334,7 @@ class Moderation(commands.Cog):
             await utils.reply(interaction, utils.err(str(exc)))
             return
 
-        def close_tempbans():
-            with session_scope() as db:
-                for s in db.scalars(select(Sanction).where(Sanction.guild_id == interaction.guild_id,
-                                                           Sanction.user_id == uid, Sanction.type == "tempban",
-                                                           Sanction.active.is_(True))):
-                    s.active = False
-        await self.bot.db(close_tempbans)
+        await self._close_active(interaction.guild_id, uid, "tempban")  # type: ignore[arg-type]
         await self._done(interaction, "unban", user, case_id, dm)
 
     @app_commands.command(name="kick", description="Expulser un membre")
@@ -378,7 +408,11 @@ class Moderation(commands.Cog):
             await utils.reply(interaction, utils.err("On n'avertit pas un bot."))
             return
         await interaction.response.defer()
-        case_id, dm = await self.sanction(interaction.guild, member, interaction.user, "warn", reason)  # type: ignore[arg-type]
+        try:
+            case_id, dm = await self.sanction(interaction.guild, member, interaction.user, "warn", reason)  # type: ignore[arg-type]
+        except ModerationError as exc:
+            await utils.reply(interaction, utils.err(str(exc)))
+            return
         count = await self.active_warns(interaction.guild_id, member.id)  # type: ignore[arg-type]
         await self._done(interaction, "warn", member, case_id, dm, f"\nAvertissements actifs : **{count}**")
 
@@ -390,21 +424,60 @@ class Moderation(commands.Cog):
     async def unwarn(self, interaction: discord.Interaction, case_id: int) -> None:
         if not await self._guard(interaction, "moderate_members", None):
             return
-
-        def revoke():
-            with session_scope() as db:
-                s = db.get(Sanction, case_id)
-                if s is None or s.guild_id != interaction.guild_id or s.type != "warn":
-                    return None
-                s.active, s.revoked_at, s.revoked_by = False, utcnow(), interaction.user.id
-                return s.user_id
-        uid = await self.bot.db(revoke)
-        if uid is None:
-            await utils.reply(interaction, utils.err("Avertissement introuvable sur ce serveur."))
+        status, uid = await self.revoke_warn(interaction.guild_id, case_id, interaction.user.id)  # type: ignore[arg-type]
+        if status == "missing":
+            await utils.reply(interaction, utils.err("Avertissement introuvable sur ce serveur (vérifiez le numéro avec /warnings)."))
+            return
+        if status == "already":
+            await utils.reply(interaction, utils.err(f"L'avertissement n°{case_id} est déjà retiré."))
             return
         await utils.reply(interaction, utils.ok(f"Avertissement n°{case_id} retiré (<@{uid}>)."), ephemeral=False)
         await self.bot.send_log(interaction.guild, "moderation", discord.Embed(  # type: ignore[arg-type]
             title=f"↩️ Avertissement n°{case_id} retiré", description=f"Membre : <@{uid}>\nPar : {interaction.user.mention}"))
+
+    async def revoke_warn(self, guild_id: int, case_id: int, by: int) -> tuple[str, int | None]:
+        """Retire un avertissement. Statut : « ok », « missing » (introuvable ici) ou « already » (déjà retiré)."""
+        def revoke():
+            with session_scope() as db:
+                s = db.get(Sanction, case_id)
+                if s is None or s.guild_id != guild_id or s.type != "warn":
+                    return "missing", None
+                if not s.active:
+                    return "already", s.user_id
+                s.active, s.revoked_at, s.revoked_by = False, utcnow(), by
+                return "ok", s.user_id
+        return await self.bot.db(revoke)
+
+    async def revoke_all_warns(self, guild_id: int, user_id: int, by: int) -> int:
+        """Retire tous les avertissements actifs d'un membre. Renvoie le nombre retiré (l'historique est conservé)."""
+        def revoke():
+            with session_scope() as db:
+                rows = db.scalars(select(Sanction).where(Sanction.guild_id == guild_id, Sanction.user_id == user_id,
+                                                         Sanction.type == "warn", Sanction.active.is_(True))).all()
+                now = utcnow()
+                for s in rows:
+                    s.active, s.revoked_at, s.revoked_by = False, now, by
+                return len(rows)
+        return await self.bot.db(revoke)
+
+    @app_commands.command(name="clearwarns", description="Retirer tous les avertissements actifs d'un membre")
+    @app_commands.describe(member="Membre ou utilisateur concerné", reason="Raison (affichée dans les logs)")
+    @app_commands.rename(member="utilisateur", reason="raison")
+    @app_commands.default_permissions(moderate_members=True)
+    @app_commands.guild_only()
+    async def clearwarns(self, interaction: discord.Interaction, member: discord.User, reason: str = "") -> None:
+        if not await self._guard(interaction, "moderate_members", None):
+            return
+        count = await self.revoke_all_warns(interaction.guild_id, member.id, interaction.user.id)  # type: ignore[arg-type]
+        if not count:
+            await utils.reply(interaction, utils.err(f"{member.mention} n'a aucun avertissement actif."))
+            return
+        await utils.reply(interaction, utils.ok(f"{count} avertissement(s) retiré(s) pour {member.mention}. "
+                                                "Ils restent visibles, barrés, dans /history."), ephemeral=False)
+        await self.bot.send_log(interaction.guild, "moderation", discord.Embed(  # type: ignore[arg-type]
+            title=f"↩️ {count} avertissement(s) retiré(s)",
+            description=f"Membre : {member.mention}\nPar : {interaction.user.mention}"
+                        + (f"\nRaison : {utils.truncate(reason, 500)}" if reason else "")))
 
     async def _history_embed(self, guild_id: int, user: discord.abc.User, only_warns: bool) -> discord.Embed:
         premium = await self.bot.is_premium(guild_id)
@@ -555,9 +628,38 @@ class Moderation(commands.Cog):
                     .order_by(ModNote.id.desc()).limit(15))]
         rows = await self.bot.db(load)
         embed = discord.Embed(title=f"Notes — {member}", color=await self.bot.embed_color(interaction.guild_id),
-                              description="\n\n".join(f"{utils.ts(at, 'd')} par <@{a}> :\n{utils.truncate(c, 300)}"
-                                                      for _, a, c, at in rows)[:4000] or "Aucune note.")
+                              description="\n\n".join(f"`n°{nid}` {utils.ts(at, 'd')} par <@{a}> :\n{utils.truncate(c, 300)}"
+                                                      for nid, a, c, at in rows)[:4000] or "Aucune note.")
+        if rows:
+            embed.set_footer(text="Pour supprimer une note : /note delete numero")
         await utils.reply(interaction, embed)
+
+    async def delete_note(self, guild_id: int, note_id: int) -> int | None:
+        """Supprime une note interne de CE serveur. Renvoie l'ID du membre concerné, ou None si introuvable."""
+        def delete():
+            with session_scope() as db:
+                n = db.get(ModNote, note_id)
+                if n is None or n.guild_id != guild_id:
+                    return None
+                uid = n.user_id
+                db.delete(n)
+                return uid
+        return await self.bot.db(delete)
+
+    @note.command(name="delete", description="Supprimer une note interne (numéro visible dans /note list)")
+    @app_commands.describe(note_id="Numéro de la note (voir /note list)")
+    @app_commands.rename(note_id="numero")
+    async def note_delete(self, interaction: discord.Interaction, note_id: int) -> None:
+        if not await self._guard(interaction, "moderate_members", None):
+            return
+        uid = await self.delete_note(interaction.guild_id, note_id)  # type: ignore[arg-type]
+        if uid is None:
+            await utils.reply(interaction, utils.err("Note introuvable sur ce serveur (vérifiez le numéro avec /note list)."))
+            return
+        await utils.reply(interaction, utils.ok(f"Note n°{note_id} supprimée (<@{uid}>)."))
+        await self.bot.send_log(interaction.guild, "moderation", discord.Embed(  # type: ignore[arg-type]
+            title=f"🗒️ Note interne n°{note_id} supprimée",
+            description=f"Membre : <@{uid}>\nPar : {interaction.user.mention}"))
 
 
 ActionType = Literal["warn", "timeout", "kick", "ban"]

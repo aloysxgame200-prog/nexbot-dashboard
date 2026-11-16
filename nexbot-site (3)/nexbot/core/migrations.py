@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Callable
 
-from sqlalchemy import inspect, select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.engine import Connection, Engine
 
 from . import models  # noqa: F401  (enregistre les tables)
@@ -29,9 +29,17 @@ def _v2(conn: Connection) -> None:
         model.__table__.create(conn, checkfirst=True)
 
 
+def _v3(conn: Connection) -> None:
+    """Tickets : colonne « claimed_by » (membre du staff qui a pris le ticket en charge). Ajout seul, aucune donnée modifiée."""
+    columns = {c["name"] for c in inspect(conn).get_columns("tickets")}
+    if "claimed_by" not in columns:
+        conn.execute(text("ALTER TABLE tickets ADD COLUMN claimed_by BIGINT"))
+
+
 MIGRATIONS: list[tuple[int, Callable[[Connection], None]]] = [
     (1, _v1),
     (2, _v2),
+    (3, _v3),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1][0]

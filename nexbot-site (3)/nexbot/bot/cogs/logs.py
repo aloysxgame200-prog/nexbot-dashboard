@@ -100,6 +100,33 @@ class Logs(commands.Cog):
             embed.add_field(name="Après", value=after.nick or "—")
             await self.send(after.guild, "members", embed)
 
+    # ------------------------------------------------------------------ salons vocaux
+    @staticmethod
+    def voice_change(before: discord.VoiceState, after: discord.VoiceState) -> tuple[str, str] | None:
+        """(titre, description) du log vocal, ou None si le salon n'a pas changé (micro coupé, stream…)."""
+        b, a = before.channel, after.channel
+        if b is not None and a is not None and b.id == a.id:
+            return None
+        if b is None and a is not None:
+            return "🔊 Connexion vocale", f"a rejoint {a.mention}"
+        if b is not None and a is None:
+            return "🔇 Déconnexion vocale", f"a quitté {b.mention}"
+        if b is not None and a is not None:
+            return "🔀 Changement de salon vocal", f"{b.mention} → {a.mention}"
+        return None
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState,
+                                    after: discord.VoiceState) -> None:
+        if member.bot:
+            return
+        change = self.voice_change(before, after)
+        if change is None:
+            return
+        title, what = change
+        embed = self._user_embed(title, member, f"{member.mention} {what}")
+        await self.send(member.guild, "voice", embed)
+
     # ------------------------------------------------------------------ messages
     async def _ignored(self, guild: discord.Guild, channel_id: int) -> bool:
         conf = await self.bot.conf(guild.id, "logs")
