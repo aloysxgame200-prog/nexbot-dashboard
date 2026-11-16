@@ -315,6 +315,11 @@ class SuggestionSettings(ModuleModel):
     enabled: bool = F(False, "Suggestions actives")
     channel_id: str = F("", "Salon des suggestions", ui="channel")
     reviewer_role_ids: list[str] = F([], "Rôles pouvant accepter / refuser", ui="roles")
+    convert_messages: bool = F(False, "Transformer les messages écrits dans le salon en suggestions",
+                               help="Les membres écrivent directement dans le salon des suggestions : Nexbot "
+                                    "remplace leur message par une suggestion avec votes. Les messages du staff "
+                                    "(permission « Gérer les messages ») restent normaux. Nexbot doit pouvoir gérer "
+                                    "les messages de ce salon.")
     create_threads: bool = F(False, "Créer un fil de discussion par suggestion", premium=True)
 
 

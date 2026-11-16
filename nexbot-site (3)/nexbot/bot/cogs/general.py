@@ -16,6 +16,8 @@ HELP_SECTIONS = [
     ("🚨 Sécurité", "`/raidmode` `/lockdown` `/unlock` `/quarantine` `/unquarantine` `/security`"),
     ("🎫 Communauté", "`/ticket claim` `/ticket close` `/ticket add` `/ticket remove` `/suggest` `/report` "
                      "· clic droit sur un message → *Applications → Signaler*"),
+    ("👋 Bienvenue", "`/welcome test` : voir le message de bienvenue, de départ ou le MP, et ce qui l'empêcherait "
+                    "d'être envoyé"),
     ("ℹ️ Infos", "`/dashboard` `/premium` `/serverinfo` `/userinfo` `/avatar` `/botinfo` `/ping` `/invite` `/support`"),
 ]
 
