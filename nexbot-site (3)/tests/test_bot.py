@@ -751,3 +751,125 @@ def test_untimeout_closes_the_active_timeout_case():
             assert db.get(Sanction, case_id).active is False     # /case affiche « terminée »
         await bot.close()
     run(scenario())
+
+
+# ----------------------------------------------------------------- mise à jour du 23/11/2026
+def test_emoji_counting_and_filter():
+    from nexbot.bot.automod_logic import count_emojis
+
+    assert count_emojis("salut à tous") == 0
+    assert count_emojis("10:30 © ok") == 0
+    assert count_emojis("😀😀😀") == 3
+    assert count_emojis("<:pepe:123456789012345678> <a:dance:123456789012345678> 🔥") == 3
+    assert count_emojis("👨‍👩‍👧 👍🏽 🇫🇷") == 3                       # emojis composés : un seul chacun
+    assert check_content("😀" * 20, conf(), 0) is None                    # désactivé par défaut
+    limited = conf(max_emojis=5)
+    assert check_content("bravo 🎉🎉🎉", limited, 0) is None
+    v = check_content("🎉" * 6, limited, 0)
+    assert v.rule == "emojis" and "6" in v.reason
+
+
+def test_emoji_option_is_free_and_off_by_default():
+    from nexbot.core.schemas import describe_module
+
+    assert ModerationSettings().max_emojis == 0
+    field = next(f for f in describe_module("moderation") if f["name"] == "max_emojis")
+    assert field["premium"] is False and field["section"] == "Anti-spam" and field["max"] == 100
+
+
+def test_duplicate_detection_follows_the_anti_spam_switch():
+    off = conf(anti_spam=False, duplicate_max=2)
+    d = SpamDetector()
+    assert [d.check(1, 1, "pub", off, now=10 + i) for i in range(5)] == [None] * 5  # anti-spam coupé : rien
+    on = conf(anti_spam=True, duplicate_max=2)
+    d = SpamDetector()
+    assert d.check(1, 1, "pub", on, now=10) is None
+    assert d.check(1, 1, "pub", on, now=11).rule == "duplicate"
+
+
+def test_reason_can_be_edited_only_in_its_guild():
+    async def scenario():
+        from nexbot.bot.cogs.moderation import Moderation
+        from nexbot.core.models import Sanction
+        from nexbot.core.sanctions import ReasonError
+
+        bot = make_bot()
+        cog = Moderation(bot)
+        with session_scope() as db:
+            mine = Sanction(guild_id=GUILD_A, user_id=611, moderator_id=1, type="ban", reason="")
+            other = Sanction(guild_id=GUILD_A + 1, user_id=611, moderator_id=1, type="warn", reason="ailleurs")
+            db.add_all([mine, other])
+            db.flush()
+            mine_id, other_id = mine.id, other.id
+        assert await cog.update_reason(GUILD_A, mine_id, "  Raid du 23/11  ") == ("ok", 611, "")
+        assert await cog.update_reason(GUILD_A, mine_id, "Raid du 23/11") == ("same", 611, "Raid du 23/11")
+        assert await cog.update_reason(GUILD_A, other_id, "piratage") == ("missing", None, "")
+        assert await cog.update_reason(GUILD_A, 999999, "x") == ("missing", None, "")
+        with pytest.raises(ReasonError):
+            await cog.update_reason(GUILD_A, mine_id, "   ")
+        with pytest.raises(ReasonError):
+            await cog.update_reason(GUILD_A, mine_id, "x" * 1001)
+        with session_scope() as db:
+            assert db.get(Sanction, mine_id).reason == "Raid du 23/11"
+            assert db.get(Sanction, other_id).reason == "ailleurs"          # l'autre serveur n'est pas touché
+            assert db.get(Sanction, mine_id).type == "ban"                   # seule la raison change
+        await bot.close()
+    run(scenario())
+
+
+def test_reason_command_is_registered_for_moderators():
+    from nexbot.bot.cogs.moderation import Moderation
+
+    cmd = Moderation.reason_cmd
+    assert cmd.name == "reason" and cmd.guild_only
+    assert cmd.default_permissions.moderate_members
+    assert {p.display_name for p in cmd.parameters} == {"numero", "raison"}
+
+
+def test_slowmode_reports_missing_permission_and_logs():
+    async def scenario():
+        import discord
+
+        from nexbot.bot.cogs.moderation import Moderation, slowmode_text
+
+        assert slowmode_text(0) == "Mode lent désactivé."
+        assert "1 h 30 min" in slowmode_text(5400)
+
+        bot = make_bot()
+        cog = Moderation(bot)
+        cog._guard = AsyncMock(return_value=True)
+        bot.send_log = AsyncMock()
+        me = SimpleNamespace(id=999)
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.mention = "<#1>"
+        channel.edit = AsyncMock()
+        channel.permissions_for = lambda m: SimpleNamespace(manage_channels=False)
+        replies = []
+
+        async def fake_reply(interaction, embed, ephemeral=True):
+            replies.append(embed.description)
+        original = utils.reply
+        utils.reply = fake_reply
+        try:
+            inter = SimpleNamespace(channel=channel, guild=SimpleNamespace(id=GUILD_A, me=me),
+                                    user=SimpleNamespace(mention="<@7>", __str__=lambda self: "mod"))
+            await Moderation.slowmode.callback(cog, inter, 30)
+            channel.edit.assert_not_awaited()
+            assert "Gérer les salons" in replies[-1]                    # message clair au lieu d'une erreur
+
+            channel.permissions_for = lambda m: SimpleNamespace(manage_channels=True)
+            channel.edit = AsyncMock(side_effect=discord.Forbidden(MagicMock(status=403), "nope"))
+            await Moderation.slowmode.callback(cog, inter, 30)
+            assert "refusé" in replies[-1]
+            bot.send_log.assert_not_awaited()
+
+            channel.edit = AsyncMock()
+            await Moderation.slowmode.callback(cog, inter, 120)
+            channel.edit.assert_awaited_once()
+            assert channel.edit.await_args.kwargs["slowmode_delay"] == 120
+            assert "2 min" in replies[-1]
+            bot.send_log.assert_awaited_once()                          # visible dans les logs de modération
+        finally:
+            utils.reply = original
+        await bot.close()
+    run(scenario())

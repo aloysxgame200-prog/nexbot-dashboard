@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from ...core import automations as auto_mod
 from ...core import billing, jobs
 from ...core import premium as premium_mod
+from ...core import sanctions as sanctions_mod
 from ...core import settings_store
 from ...core.config import get_settings
 from ...core.db import session_scope
@@ -164,6 +165,25 @@ async def revoke_warn(request: Request, guild_id: int, sanction_id: int):
         s.active, s.revoked_at, s.revoked_by = False, utcnow(), ctx.user.id
         _audit(db, ctx, "sanction.revoke", {"id": sanction_id})
     return {"ok": True}
+
+
+@router.put("/guilds/{guild_id}/sanctions/{sanction_id}/reason")
+async def edit_sanction_reason(request: Request, guild_id: int, sanction_id: int, payload: dict = Body(...)):
+    ctx = await auth.require_guild(request, guild_id, mutate=True)
+    _mutate_limit(ctx)
+    reason = payload.get("reason")
+    if not isinstance(reason, str):
+        raise HTTPException(422, {"message": "Raison manquante", "errors": []})
+    with session_scope() as db:
+        try:
+            status, _, old = sanctions_mod.update_reason(db, guild_id, sanction_id, reason)
+        except sanctions_mod.ReasonError as e:
+            raise HTTPException(422, {"message": str(e), "errors": [{"field": "reason", "message": str(e)}]})
+        if status == "missing":
+            raise HTTPException(404, "Sanction introuvable")
+        if status == "ok":
+            _audit(db, ctx, "sanction.reason", {"id": sanction_id, "before": old[:200]})
+    return {"ok": True, "reason": reason.strip()}
 
 
 class NoteIn(BaseModel):

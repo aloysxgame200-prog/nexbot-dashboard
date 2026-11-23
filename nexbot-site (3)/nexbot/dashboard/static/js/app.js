@@ -834,7 +834,12 @@
       t.append(h("tbody", {}, d.items.map((s) => h("tr", {},
         h("td", { text: s.id }), h("td", {}, h("span", { class: "badge " + (LBL[s.type] || ["", "off"])[1], text: (LBL[s.type] || [s.type])[0] }), s.automatic ? h("div", { class: "small muted", text: "automatique" }) : null),
         h("td", { class: "mono" }, h("a", { href: "#", text: s.user_id, onclick: (e) => { e.preventDefault(); notesUser.value = s.user_id; loadNotes(); } })),
-        h("td", { class: "mono", text: s.moderator_id }), h("td", { text: s.reason || "—" }),
+        h("td", { class: "mono", text: s.moderator_id }),
+        h("td", {}, h("span", { text: s.reason || "—" }), " ", h("button", { class: "btn sm ghost", type: "button", text: "Modifier", title: "Modifier la raison", onclick: async () => {
+          const reason = prompt(`Nouvelle raison de la sanction n°${s.id} :`, s.reason || "");
+          if (reason === null) return;
+          if (!reason.trim()) return toast("La raison ne peut pas être vide", "error");
+          try { await api("PUT", `${BASE}/sanctions/${s.id}/reason`, { reason }); toast("Raison modifiée"); pageSanctions(page); } catch (e) { toast(e.message, "error"); } } })),
         h("td", {}, fmtDate(s.created_at), s.expires_at ? h("div", { class: "small muted", text: "jusqu'au " + fmtDate(s.expires_at) }) : null),
         h("td", {}, s.type === "warn" && s.active ? h("button", { class: "btn sm", type: "button", text: "Retirer", onclick: async () => {
           if (!confirm("Retirer cet avertissement ?")) return;

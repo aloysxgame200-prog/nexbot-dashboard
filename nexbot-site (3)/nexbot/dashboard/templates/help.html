@@ -33,7 +33,8 @@
         <tr><td><code>/clear</code></td><td>Supprimer jusqu'à 100 messages (filtre par membre possible)</td><td>Gérer les messages</td></tr>
         <tr><td><code>/note add</code> <code>/note list</code> <code>/note delete</code></td><td>Notes internes du staff sur un membre (numérotées ; suppression aussi possible depuis Dashboard → Sanctions)</td><td>Exclure temporairement</td></tr>
         <tr><td><code>/history</code> <code>/case</code></td><td>Historique des sanctions d'un membre, détail d'une sanction</td><td>Exclure temporairement</td></tr>
-        <tr><td><code>/slowmode</code></td><td>Mode lent du salon</td><td>Gérer les salons</td></tr>
+        <tr><td><code>/reason</code></td><td>Corriger la raison d'une sanction (numéro visible dans <code>/history</code>). Aussi possible depuis Dashboard → Sanctions → « Modifier ». L'ancienne et la nouvelle raison apparaissent dans les logs de modération.</td><td>Exclure temporairement</td></tr>
+        <tr><td><code>/slowmode</code></td><td>Mode lent du salon (en secondes, 0 pour l'arrêter). Indique clairement si {{ BOT_NAME }} n'a pas la permission « Gérer les salons ».</td><td>Gérer les salons</td></tr>
         <tr><td><code>/security</code></td><td>État de la protection et permissions manquantes de Nexbot</td><td>Gérer le serveur</td></tr>
         <tr><td><code>/raidmode</code></td><td>Activer / couper le mode protection renforcée</td><td>Gérer le serveur</td></tr>
         <tr><td><code>/lockdown</code> <code>/unlock</code></td><td>Verrouiller / déverrouiller un salon</td><td>Gérer les salons</td></tr>
@@ -62,6 +63,8 @@
     <p><b>Les membres peuvent-ils écrire directement dans le salon des suggestions ?</b><br><span class="muted">Oui : Dashboard → Suggestions → cochez « Transformer les messages écrits dans le salon en suggestions » (gratuit, désactivé par défaut). Chaque message d'un membre est remplacé par une suggestion avec votes. Les messages du staff (permission « Gérer les messages ») restent normaux. {{ BOT_NAME }} doit avoir la permission « Gérer les messages » dans ce salon.</span></p>
     <p><b>Peut-on contourner les mots interdits avec <code>/suggest</code> ?</b><br><span class="muted">Non : les suggestions passent par le même filtre automatique que les messages (invitations, liens, mots interdits, majuscules), avec les mêmes exemptions.</span></p>
     <p><b>Mon message de bienvenue ne s'affiche pas, que faire ?</b><br><span class="muted">Tapez <code>/welcome test</code> : {{ BOT_NAME }} vous montre le message en privé et liste ce qui bloque (module désactivé, salon supprimé, permission manquante). Pendant un raid, les messages de bienvenue <b>et de départ</b> sont suspendus pour éviter une rafale de messages.</span></p>
+    <p><b>Comment limiter les messages remplis d'emojis ?</b><br><span class="muted">Dashboard → Modération → Anti-spam → « Emojis maximum par message » (gratuit, 0 = désactivé). Les emojis personnalisés comptent aussi ; un emoji composé (drapeau, famille, couleur de peau) compte pour un seul.</span></p>
+    <p><b>J'ai désactivé l'anti-spam mais des messages répétés étaient encore supprimés, pourquoi ?</b><br><span class="muted">C'était un défaut corrigé le 23/11/2026 : la détection des messages répétés suit désormais l'interrupteur « Protection anti-spam ».</span></p>
     <p><b>Que deviennent mes réglages si le Premium expire ?</b><br><span class="muted">Ils sont conservés et réactivés automatiquement au réabonnement.</span></p>
   </div>
 </main>

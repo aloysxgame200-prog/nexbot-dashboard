@@ -11,6 +11,7 @@ from discord.ext import commands, tasks
 from sqlalchemy import func, select
 
 from ...core import premium as premium_mod
+from ...core import sanctions as sanctions_mod
 from ...core.db import session_scope
 from ...core.embeds import render_text
 from ...core.models import ModNote, Sanction, utcnow
@@ -47,6 +48,13 @@ def missing_bot_permission(me, kind: str) -> str | None:
     if getattr(perms, "administrator", False) or getattr(perms, needed[0], False):
         return None
     return needed[1]
+
+
+def slowmode_text(seconds: int) -> str:
+    """Message de confirmation de /slowmode, lisible (« 1 h 30 min » plutôt que « 5400 s »)."""
+    if seconds <= 0:
+        return "Mode lent désactivé."
+    return f"Mode lent : un message toutes les {utils.fmt_duration(timedelta(seconds=seconds))} par membre."
 
 
 class Moderation(commands.Cog):
@@ -585,18 +593,67 @@ class Moderation(commands.Cog):
             title="🧹 /clear", description=f"{len(deleted)} messages dans {channel.mention} par {interaction.user.mention}"))
 
     @app_commands.command(name="slowmode", description="Définir le mode lent du salon (0 pour désactiver)")
+    @app_commands.describe(seconds="Délai entre deux messages d'un même membre, en secondes (0-21600, 0 = désactivé)")
     @app_commands.rename(seconds="secondes")
     @app_commands.default_permissions(manage_channels=True)
     @app_commands.guild_only()
     async def slowmode(self, interaction: discord.Interaction, seconds: app_commands.Range[int, 0, 21600]) -> None:
         if not await self._guard(interaction, "manage_channels", None):
             return
-        if not isinstance(interaction.channel, (discord.TextChannel, discord.Thread)):
+        channel = interaction.channel
+        if not isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel)):
             await utils.reply(interaction, utils.err("Salon non pris en charge."))
             return
-        await interaction.channel.edit(slowmode_delay=seconds, reason=f"/slowmode par {interaction.user}")
-        await utils.reply(interaction, utils.ok(f"Mode lent : {seconds} s." if seconds else "Mode lent désactivé."),
-                          ephemeral=False)
+        if not channel.permissions_for(interaction.guild.me).manage_channels:  # type: ignore[union-attr]
+            await utils.reply(interaction, utils.err("Il me manque la permission « Gérer les salons » dans ce salon."))
+            return
+        try:
+            await channel.edit(slowmode_delay=seconds, reason=f"/slowmode par {interaction.user}")
+        except discord.Forbidden:
+            await utils.reply(interaction, utils.err("Discord m'a refusé la modification de ce salon (permissions)."))
+            return
+        except discord.HTTPException as exc:
+            await utils.reply(interaction, utils.err(f"Discord a refusé la modification ({exc.status})."))
+            return
+        text = slowmode_text(seconds)
+        await utils.reply(interaction, utils.ok(text), ephemeral=False)
+        await self.bot.send_log(interaction.guild, "moderation", discord.Embed(  # type: ignore[arg-type]
+            title="🐢 /slowmode", description=f"{text}\nSalon : {channel.mention}\nPar : {interaction.user.mention}"))
+
+    @app_commands.command(name="reason", description="Modifier la raison d'une sanction (numéro visible dans /history)")
+    @app_commands.describe(case_id="Numéro de la sanction", reason="Nouvelle raison")
+    @app_commands.rename(case_id="numero", reason="raison")
+    @app_commands.default_permissions(moderate_members=True)
+    @app_commands.guild_only()
+    async def reason_cmd(self, interaction: discord.Interaction, case_id: int,
+                         reason: app_commands.Range[str, 1, 1000]) -> None:
+        if not await self._guard(interaction, "moderate_members", None):
+            return
+        try:
+            status, uid, old = await self.update_reason(interaction.guild_id, case_id, reason)  # type: ignore[arg-type]
+        except sanctions_mod.ReasonError as exc:
+            await utils.reply(interaction, utils.err(str(exc)))
+            return
+        if status == "missing":
+            await utils.reply(interaction, utils.err("Sanction introuvable sur ce serveur (vérifiez le numéro avec /history)."))
+            return
+        if status == "same":
+            await utils.reply(interaction, utils.warn_embed(f"La sanction n°{case_id} a déjà cette raison."))
+            return
+        await utils.reply(interaction, utils.ok(f"Raison de la sanction n°{case_id} (<@{uid}>) modifiée."))
+        embed = discord.Embed(title=f"✏️ Raison modifiée · sanction n°{case_id}")
+        embed.add_field(name="Membre", value=f"<@{uid}>")
+        embed.add_field(name="Par", value=interaction.user.mention)
+        embed.add_field(name="Avant", value=utils.truncate(old, 1000) or "Aucune raison", inline=False)
+        embed.add_field(name="Après", value=utils.truncate(reason.strip(), 1000), inline=False)
+        await self.bot.send_log(interaction.guild, "moderation", embed)  # type: ignore[arg-type]
+
+    async def update_reason(self, guild_id: int, case_id: int, reason: str) -> tuple[str, int | None, str]:
+        """Change la raison d'une sanction de CE serveur (voir core.sanctions.update_reason)."""
+        def save():
+            with session_scope() as db:
+                return sanctions_mod.update_reason(db, guild_id, case_id, reason)
+        return await self.bot.db(save)
 
     note = app_commands.Group(name="note", description="Notes internes du staff", guild_only=True,
                               default_permissions=discord.Permissions(moderate_members=True))

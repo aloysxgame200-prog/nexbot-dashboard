@@ -340,3 +340,33 @@ def test_ticket_ping_staff_option_is_free_and_on_by_default():
     with session_scope() as db:
         settings_store.save(db, GUILD_A, "tickets", {"ping_staff": False}, user_id=1, premium=False)
         assert settings_store.effective(db, GUILD_A, "tickets", False).ping_staff is False
+
+
+# ----------------------------------------------------------------- mise à jour du 23/11/2026
+def test_sanction_reason_can_be_edited_from_the_dashboard(make_client):
+    from nexbot.core.models import DashboardAudit
+
+    with session_scope() as db:
+        mine = Sanction(guild_id=GUILD_A, user_id=300000000000000009, moderator_id=1, type="kick", reason="")
+        other = Sanction(guild_id=GUILD_B, user_id=300000000000000009, moderator_id=1, type="warn", reason="b")
+        db.add_all([mine, other])
+        db.flush()
+        mine_id, other_id = mine.id, other.id
+    alice = make_client("alice")
+    url = f"/api/guilds/{GUILD_A}/sanctions/{mine_id}/reason"
+    r = alice.put(url, json={"reason": "  Insultes répétées  "})
+    assert r.status_code == 200 and r.json()["reason"] == "Insultes répétées"
+    assert alice.put(url, json={"reason": "   "}).status_code == 422
+    assert alice.put(url, json={"reason": "x" * 1001}).status_code == 422
+    assert alice.put(url, json={}).status_code == 422
+    # une sanction d'un autre serveur ne peut pas être modifiée en passant par le serveur A
+    assert alice.put(f"/api/guilds/{GUILD_A}/sanctions/{other_id}/reason", json={"reason": "pirate"}).status_code == 404
+    items = alice.get(f"/api/guilds/{GUILD_A}/sanctions").json()["items"]
+    assert next(i for i in items if i["id"] == mine_id)["reason"] == "Insultes répétées"
+    with session_scope() as db:
+        assert db.get(Sanction, other_id).reason == "b"
+        assert db.query(DashboardAudit).filter_by(guild_id=GUILD_A, action="sanction.reason").count() == 1
+    # CSRF obligatoire comme pour toute modification
+    anon = make_client("alice")
+    anon.headers.pop("X-CSRF-Token")
+    assert anon.put(url, json={"reason": "y"}).status_code in (401, 403)

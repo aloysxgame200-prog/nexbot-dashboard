@@ -139,6 +139,9 @@ class ModerationSettings(ModuleModel):
     spam_window_seconds: int = F(5, "…sur une fenêtre de (secondes)", section="Anti-spam", ge=1, le=60)
     duplicate_max: int = F(4, "Messages identiques répétés maximum", section="Anti-spam", ge=2, le=20)
     max_mentions: int = F(6, "Mentions maximum par message", section="Anti-spam", ge=1, le=50)
+    max_emojis: int = F(0, "Emojis maximum par message (0 = désactivé)", section="Anti-spam", ge=0, le=100,
+                        help="Supprime les messages remplis d'emojis. Un emoji composé (drapeau, famille…) compte pour un. "
+                             "Exemple : 10.")
 
     exempt_role_ids: list[str] = F([], "Rôles exemptés des filtres", ui="roles", section="Exclusions")
     exempt_channel_ids: list[str] = F([], "Salons exemptés des filtres", ui="channels", section="Exclusions")
