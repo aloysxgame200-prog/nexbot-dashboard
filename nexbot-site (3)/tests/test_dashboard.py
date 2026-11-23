@@ -277,6 +277,32 @@ def test_sanctions_history_isolation_and_revoke(make_client):
     assert len(alice.get(f"/api/guilds/{GUILD_A}/sanctions").json()["items"]) == 3  # historique étendu
 
 
+def test_notes_can_be_deleted_only_in_their_own_guild(make_client):
+    from nexbot.core.models import DashboardAudit, ModNote
+
+    with session_scope() as db:
+        mine = ModNote(guild_id=GUILD_A, user_id=300000000000000009, author_id=1, content="à supprimer")
+        other = ModNote(guild_id=GUILD_B, user_id=300000000000000009, author_id=1, content="autre serveur")
+        db.add_all([mine, other])
+        db.flush()
+        mine_id, other_id = mine.id, other.id
+    alice = make_client("alice")
+    notes = alice.get(f"/api/guilds/{GUILD_A}/notes?user_id=300000000000000009").json()["items"]
+    assert [n["id"] for n in notes] == [mine_id]                                    # le numéro est fourni
+    assert alice.delete(f"/api/guilds/{GUILD_A}/notes/{other_id}").status_code == 404   # note d'un autre serveur
+    assert alice.delete(f"/api/guilds/{GUILD_A}/notes/{mine_id}").status_code == 200
+    assert alice.delete(f"/api/guilds/{GUILD_A}/notes/{mine_id}").status_code == 404    # déjà supprimée
+    assert alice.get(f"/api/guilds/{GUILD_A}/notes?user_id=300000000000000009").json()["items"] == []
+    with session_scope() as db:
+        assert db.get(ModNote, other_id) is not None
+        assert db.query(DashboardAudit).filter_by(guild_id=GUILD_A, action="note.delete").count() == 1
+    bob = make_client("bob")                                          # sans « Gérer le serveur » sur A
+    assert bob.delete(f"/api/guilds/{GUILD_A}/notes/{other_id}").status_code == 403
+    assert bob.delete(f"/api/guilds/{GUILD_B}/notes/{other_id}").status_code == 200   # B : bob a la permission
+    anonymous = make_client()
+    assert anonymous.delete(f"/api/guilds/{GUILD_A}/notes/1").status_code in (401, 403)
+
+
 def test_guild_page_and_overview_render(make_client):
     alice = make_client("alice")
     r = alice.get(f"/g/{GUILD_A}/antiraid")
@@ -287,3 +313,60 @@ def test_guild_page_and_overview_render(make_client):
     assert d["bot"]["online"] is False
     data = alice.get(f"/api/guilds/{GUILD_A}/discord").json()
     assert data["channels"][0]["id"] == CHANNEL_A and all(r["name"] != "@everyone" for r in data["roles"])
+
+
+def test_ticket_records_send_discord_ids_as_text(make_client):
+    """Les identifiants (auteur, responsable) arrivent en texte : JavaScript arrondirait les entiers 64 bits."""
+    from nexbot.core.models import Ticket
+
+    staff = 300000000000000123
+    with session_scope() as db:
+        db.query(Ticket).delete()
+        db.add(Ticket(guild_id=GUILD_A, opener_id=300000000000000009, channel_id=700000000000000001, claimed_by=staff))
+        db.add(Ticket(guild_id=GUILD_B, opener_id=300000000000000009, claimed_by=staff))
+    items = make_client("alice").get(f"/api/guilds/{GUILD_A}/records/tickets").json()["items"]
+    assert len(items) == 1                                             # uniquement les tickets de ce serveur
+    assert items[0]["claimed_by"] == str(staff) and items[0]["opener_id"] == "300000000000000009"
+    with session_scope() as db:
+        db.query(Ticket).delete()
+
+
+def test_ticket_ping_staff_option_is_free_and_on_by_default():
+    from nexbot.core.schemas import TicketSettings, describe_module
+
+    assert TicketSettings().ping_staff is True
+    field = next(f for f in describe_module("tickets") if f["name"] == "ping_staff")
+    assert field["premium"] is False and field["ui"] == "toggle"
+    with session_scope() as db:
+        settings_store.save(db, GUILD_A, "tickets", {"ping_staff": False}, user_id=1, premium=False)
+        assert settings_store.effective(db, GUILD_A, "tickets", False).ping_staff is False
+
+
+# ----------------------------------------------------------------- mise à jour du 23/11/2026
+def test_sanction_reason_can_be_edited_from_the_dashboard(make_client):
+    from nexbot.core.models import DashboardAudit
+
+    with session_scope() as db:
+        mine = Sanction(guild_id=GUILD_A, user_id=300000000000000009, moderator_id=1, type="kick", reason="")
+        other = Sanction(guild_id=GUILD_B, user_id=300000000000000009, moderator_id=1, type="warn", reason="b")
+        db.add_all([mine, other])
+        db.flush()
+        mine_id, other_id = mine.id, other.id
+    alice = make_client("alice")
+    url = f"/api/guilds/{GUILD_A}/sanctions/{mine_id}/reason"
+    r = alice.put(url, json={"reason": "  Insultes répétées  "})
+    assert r.status_code == 200 and r.json()["reason"] == "Insultes répétées"
+    assert alice.put(url, json={"reason": "   "}).status_code == 422
+    assert alice.put(url, json={"reason": "x" * 1001}).status_code == 422
+    assert alice.put(url, json={}).status_code == 422
+    # une sanction d'un autre serveur ne peut pas être modifiée en passant par le serveur A
+    assert alice.put(f"/api/guilds/{GUILD_A}/sanctions/{other_id}/reason", json={"reason": "pirate"}).status_code == 404
+    items = alice.get(f"/api/guilds/{GUILD_A}/sanctions").json()["items"]
+    assert next(i for i in items if i["id"] == mine_id)["reason"] == "Insultes répétées"
+    with session_scope() as db:
+        assert db.get(Sanction, other_id).reason == "b"
+        assert db.query(DashboardAudit).filter_by(guild_id=GUILD_A, action="sanction.reason").count() == 1
+    # CSRF obligatoire comme pour toute modification
+    anon = make_client("alice")
+    anon.headers.pop("X-CSRF-Token")
+    assert anon.put(url, json={"reason": "y"}).status_code in (401, 403)

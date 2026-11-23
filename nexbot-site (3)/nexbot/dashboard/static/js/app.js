@@ -534,8 +534,9 @@
     if (!data.items.length) { card.append(h("div", { class: "empty", text: "Rien pour le moment." })); return card; }
     const t = h("table");
     if (kind === "tickets") {
-      t.append(h("thead", {}, h("tr", {}, ["#", "Membre", "Catégorie", "Statut", "Ouvert le"].map((x) => h("th", { text: x })))));
+      t.append(h("thead", {}, h("tr", {}, ["#", "Membre", "Catégorie", "Pris en charge par", "Statut", "Ouvert le"].map((x) => h("th", { text: x })))));
       t.append(h("tbody", {}, data.items.map((r) => h("tr", {}, h("td", { text: r.id }), h("td", { class: "mono", text: r.opener_id }), h("td", { text: r.category }),
+        h("td", r.claimed_by ? { class: "mono", text: r.claimed_by } : { class: "muted", text: "—" }),
         h("td", {}, h("span", { class: "badge " + (r.status === "open" ? "ok" : "off"), text: r.status === "open" ? "Ouvert" : "Fermé" })), h("td", { text: fmtDate(r.created_at) })))));
     } else if (kind === "suggestions") {
       const lab = { pending: ["En attente", "warn"], accepted: ["Acceptée", "ok"], refused: ["Refusée", "danger"] };
@@ -833,7 +834,12 @@
       t.append(h("tbody", {}, d.items.map((s) => h("tr", {},
         h("td", { text: s.id }), h("td", {}, h("span", { class: "badge " + (LBL[s.type] || ["", "off"])[1], text: (LBL[s.type] || [s.type])[0] }), s.automatic ? h("div", { class: "small muted", text: "automatique" }) : null),
         h("td", { class: "mono" }, h("a", { href: "#", text: s.user_id, onclick: (e) => { e.preventDefault(); notesUser.value = s.user_id; loadNotes(); } })),
-        h("td", { class: "mono", text: s.moderator_id }), h("td", { text: s.reason || "—" }),
+        h("td", { class: "mono", text: s.moderator_id }),
+        h("td", {}, h("span", { text: s.reason || "—" }), " ", h("button", { class: "btn sm ghost", type: "button", text: "Modifier", title: "Modifier la raison", onclick: async () => {
+          const reason = prompt(`Nouvelle raison de la sanction n°${s.id} :`, s.reason || "");
+          if (reason === null) return;
+          if (!reason.trim()) return toast("La raison ne peut pas être vide", "error");
+          try { await api("PUT", `${BASE}/sanctions/${s.id}/reason`, { reason }); toast("Raison modifiée"); pageSanctions(page); } catch (e) { toast(e.message, "error"); } } })),
         h("td", {}, fmtDate(s.created_at), s.expires_at ? h("div", { class: "small muted", text: "jusqu'au " + fmtDate(s.expires_at) }) : null),
         h("td", {}, s.type === "warn" && s.active ? h("button", { class: "btn sm", type: "button", text: "Retirer", onclick: async () => {
           if (!confirm("Retirer cet avertissement ?")) return;
@@ -856,7 +862,11 @@
       if (!/^\d{15,21}$/.test(notesUser.value.trim())) return notesBox.append(h("div", { class: "muted small", text: "Saisissez un identifiant de membre valide." }));
       const r = await api("GET", `${BASE}/notes?user_id=${notesUser.value.trim()}`);
       if (!r.items.length) notesBox.append(h("div", { class: "muted small", text: "Aucune note pour ce membre." }));
-      for (const n of r.items) notesBox.append(h("div", { class: "auto-item" }, h("div", { class: "desc" }, n.content, h("div", { class: "small muted", text: `par ${n.author_id} · ${fmtDate(n.created_at)}` }))));
+      for (const n of r.items) notesBox.append(h("div", { class: "auto-item" },
+        h("div", { class: "desc" }, n.content, h("div", { class: "small muted", text: `n°${n.id} · par ${n.author_id} · ${fmtDate(n.created_at)}` })),
+        h("button", { class: "btn sm danger", type: "button", text: "Supprimer", onclick: async () => {
+          if (!confirm("Supprimer définitivement cette note ?")) return;
+          try { await api("DELETE", `${BASE}/notes/${n.id}`); toast("Note supprimée"); loadNotes(); } catch (e) { toast(e.message, "error"); } } })));
     };
     notesUser.addEventListener("change", () => loadNotes().catch((e) => toast(e.message, "error")));
     pageEl.append(h("div", { class: "card stack" }, h("h3", { text: "Notes internes" }), h("div", { class: "row" }, h("div", { class: "grow" }, notesUser), h("button", { class: "btn", type: "button", text: "Afficher", onclick: () => loadNotes().catch((e) => toast(e.message, "error")) })),

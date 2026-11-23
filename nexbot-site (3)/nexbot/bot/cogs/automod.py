@@ -65,6 +65,25 @@ class AutoMod(commands.Cog):
             return
         await self._punish(message, conf, verdict.reason, verdict.rule)
 
+    @commands.Cog.listener()
+    async def on_message_edit(self, before: discord.Message, after: discord.Message) -> None:
+        """Contournement classique : envoyer un message propre puis le modifier. On revérifie le nouveau texte.
+
+        Seules les règles de contenu s'appliquent (invitations, liens, mots interdits, majuscules) :
+        une modification ne renvoie pas de notification, donc les mentions et le spam ne sont pas recomptés.
+        """
+        if after.author.bot or after.guild is None or after.webhook_id or before.content == after.content:
+            return
+        if not self.bot.globally_enabled("automod"):
+            return
+        conf = await self.bot.conf(after.guild.id, "moderation")
+        if not (conf.enabled and conf.automod_enabled and conf.filter_edits) or self._exempt(after, conf):
+            return
+        verdict = check_content(after.content, conf, 0)
+        if verdict is None:
+            return
+        await self._punish(after, conf, f"{verdict.reason} (message modifié)", verdict.rule)
+
     async def _punish(self, message: discord.Message, conf, reason: str, rule: str) -> None:
         guild = message.guild
         assert guild is not None and isinstance(message.author, discord.Member)
